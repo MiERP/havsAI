@@ -223,7 +223,15 @@ if [ "$ready" != "1" ]; then
 fi
 
 log "    health: $(curl -fsS --max-time 3 "$HEALTH_URL")"
-if curl -fsS --max-time 5 "http://127.0.0.1:$PORT/styles.css" | grep -q '#ea580c'; then
+theme_ok=0
+for _ in 1 2 3 4 5; do
+  if curl -fsS --max-time 5 "http://127.0.0.1:$PORT/styles.css" | grep -q '#ea580c'; then
+    theme_ok=1
+    break
+  fi
+  sleep 1
+done
+if [ "$theme_ok" = "1" ]; then
   log "    theme: #ea580c is live"
 else
   log "    WARNING: #ea580c not found in styles.css (check static root/cache)"
