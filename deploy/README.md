@@ -20,20 +20,17 @@ ssh root@103.20.102.229 'bash /opt/havs-ai/deploy/deploy.sh'
 
 ## Lần đầu khi VPS chưa có `.git`
 
-Nếu VPS chỉ có file copy (lỗi `fatal: not a git repository`), chạy một lệnh này
-để tải script mới nhất từ GitHub và để script tự bootstrap repo:
-
-```bash
-ssh root@103.20.102.229 \
-  'curl -fsSL https://raw.githubusercontent.com/MiERP/havsAI/main/deploy/deploy.sh -o /tmp/havs-deploy.sh && bash /tmp/havs-deploy.sh'
-```
-
-Nếu repo private, copy script từ máy local rồi chạy:
+Repo là private, nên copy script từ máy local lên VPS một lần rồi chạy:
 
 ```bash
 scp deploy/deploy.sh root@103.20.102.229:/tmp/havs-deploy.sh
-ssh root@103.20.102.229 'bash /tmp/havs-deploy.sh'
+ssh root@103.20.102.229 \
+  'APP_DIR=/opt/havs-ai SERVICE=havs-ai bash /tmp/havs-deploy.sh'
 ```
+
+Script dùng `REPO_URL=git@github.com:MiERP/havsAI.git` và SSH key có sẵn trên
+VPS (`/root/.ssh/id_ed25519`) để clone repo private. Nếu key thay đổi, cập nhật
+lại key hoặc truyền `REPO_URL=https://<token>@github.com/MiERP/havsAI.git`.
 
 Script sẽ:
 

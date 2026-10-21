@@ -4,11 +4,11 @@
 # One command on the VPS:
 #   sudo bash /opt/havs-ai/deploy/deploy.sh
 #
-# First run when the VPS only has copied files (no .git):
-#   curl -fsSL https://raw.githubusercontent.com/MiERP/havsAI/main/deploy/deploy.sh \
-#     -o /tmp/havs-deploy.sh && sudo bash /tmp/havs-deploy.sh
+# First run (private repo): upload this file once, then run it:
+#   scp deploy/deploy.sh root@103.20.102.229:/tmp/havs-deploy.sh
+#   ssh root@103.20.102.229 'APP_DIR=/opt/havs-ai SERVICE=havs-ai bash /tmp/havs-deploy.sh'
 #
-# One command from your machine:
+# One command from your machine after the first run:
 #   ssh root@103.20.102.229 'bash /opt/havs-ai/deploy/deploy.sh'
 #
 # If APP_DIR has no .git, the script backs up fullstack/.env + fullstack/data,
@@ -17,7 +17,7 @@
 #
 # Env overrides:
 #   APP_DIR=/opt/havs-ai
-#   REPO_URL=https://github.com/MiERP/havsAI.git
+#   REPO_URL=git@github.com:MiERP/havsAI.git  (uses the VPS GitHub SSH key)
 #   BRANCH=main
 #   RUN_USER=<systemd User= or owner of APP_DIR>
 #   SERVICE=<auto-detected havs* systemd unit>
@@ -32,7 +32,7 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/havs-ai}"
-REPO_URL="${REPO_URL:-https://github.com/MiERP/havsAI.git}"
+REPO_URL="${REPO_URL:-git@github.com:MiERP/havsAI.git}"
 BRANCH="${BRANCH:-main}"
 PORT="${PORT:-3000}"
 PM2_APP="${PM2_APP:-havsai}"
@@ -63,6 +63,12 @@ id "$RUN_USER" >/dev/null 2>&1 || fail "Linux user '$RUN_USER' does not exist"
 
 run_app() {
   if [ "$RUN_USER" = "root" ]; then "$@"; else sudo -u "$RUN_USER" "$@"; fi
+}
+
+# Git runs as root so it can use the VPS's GitHub SSH key. The worktree is
+# chowned to RUN_USER before npm/test so the service user can write node_modules.
+run_git() {
+  git -c safe.directory="$APP_DIR" "$@"
 }
 
 OLD_ENV=""
@@ -152,21 +158,23 @@ fi
 
 log "[2/6] Pulling origin/$BRANCH"
 cd "$APP_DIR"
-if [ -n "$(run_app git status --porcelain --untracked-files=no)" ]; then
+if [ -n "$(run_git status --porcelain --untracked-files=no)" ]; then
   log "    tracked files have local changes on the server:"
-  run_app git status --short
+  run_git status --short
   [ "$FORCE_RESET" = "1" ] || fail "Refusing to overwrite local changes; set FORCE_RESET=1 to discard them."
 fi
 
-run_app git fetch --prune origin "$BRANCH"
+run_git fetch --prune origin "$BRANCH"
 if [ "$FORCE_RESET" = "1" ]; then
-  run_app git reset --hard "origin/$BRANCH"
-elif run_app git symbolic-ref -q HEAD >/dev/null; then
-  run_app git merge --ff-only "origin/$BRANCH" || fail "Fast-forward failed; set FORCE_RESET=1 to discard server changes."
+  run_git reset --hard "origin/$BRANCH"
+elif run_git symbolic-ref -q HEAD >/dev/null; then
+  run_git merge --ff-only "origin/$BRANCH" || fail "Fast-forward failed; set FORCE_RESET=1 to discard server changes."
 else
-  run_app git reset --hard "origin/$BRANCH"
+  run_git reset --hard "origin/$BRANCH"
 fi
-log "    -> $(run_app git rev-parse --short HEAD) $(run_app git log -1 --pretty=%s)"
+log "    -> $(run_git rev-parse --short HEAD) $(run_git log -1 --pretty=%s)"
+
+chown -R "$RUN_USER" "$APP_DIR"
 
 log "[3/6] Installing production dependencies"
 run_app bash -c "cd '$APP_DIR/fullstack' && npm ci --omit=dev"
@@ -221,4 +229,4 @@ else
   log "    WARNING: #ea580c not found in styles.css (check static root/cache)"
 fi
 
-log "DONE. Commit $(run_app git -C "$APP_DIR" rev-parse --short HEAD) is live."
+log "DONE. Commit $(run_git -C "$APP_DIR" rev-parse --short HEAD) is live."

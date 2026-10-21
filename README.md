@@ -257,12 +257,13 @@ Từ máy local:
 ssh root@103.20.102.229 'bash /opt/havs-ai/deploy/deploy.sh'
 ```
 
-Nếu VPS chưa có `.git` (lỗi `fatal: not a git repository`), chạy một lệnh để
-tải script và để nó tự bootstrap repo:
+Nếu VPS chưa có `.git` (lỗi `fatal: not a git repository`), copy script lên VPS
+một lần rồi để nó tự bootstrap repo (repo private, dùng SSH key có sẵn trên VPS):
 
 ```bash
+scp deploy/deploy.sh root@103.20.102.229:/tmp/havs-deploy.sh
 ssh root@103.20.102.229 \
-  'curl -fsSL https://raw.githubusercontent.com/MiERP/havsAI/main/deploy/deploy.sh -o /tmp/havs-deploy.sh && bash /tmp/havs-deploy.sh'
+  'APP_DIR=/opt/havs-ai SERVICE=havs-ai bash /tmp/havs-deploy.sh'
 ```
 
 Nếu đường dẫn/service khác mặc định:
