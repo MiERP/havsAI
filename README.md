@@ -242,6 +242,31 @@ log OTP khi thiếu mailer, `assetlinks.json`, cùng các bất biến frontend
 (KaTeX self-host + `trust: false`, iframe Lab `sandbox="allow-scripts"`, host App
 Links/PWA).
 
+## Deploy VPS
+
+Một lệnh trên VPS: tự backup SQLite, pull `main`, `npm ci --omit=dev`, chạy
+test, restart systemd/pm2 và health-check.
+
+```bash
+sudo bash /opt/havs-ai/deploy/deploy.sh
+```
+
+Từ máy local:
+
+```bash
+ssh root@103.20.102.229 'bash /opt/havs-ai/deploy/deploy.sh'
+```
+
+Nếu đường dẫn/service khác mặc định:
+
+```bash
+sudo APP_DIR=/opt/havs-ai RUN_USER=havsai SERVICE=havsai PORT=3000 \
+  bash deploy/deploy.sh
+```
+
+Script không đụng `fullstack/.env` và `fullstack/data`. Chi tiết biến, backup và
+khôi phục DB: `deploy/README.md`.
+
 ## Giới hạn có chủ đích
 
 - Không tái tạo PairIP, Facebook SDK, Singular SDK.
