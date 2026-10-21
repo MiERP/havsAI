@@ -65,7 +65,21 @@ run_app() {
   if [ "$RUN_USER" = "root" ]; then "$@"; else sudo -u "$RUN_USER" "$@"; fi
 }
 
-DB_PATH="$APP_DIR/fullstack/data/havs.db"
+OLD_ENV=""
+if [ -f "$APP_DIR/.env" ]; then
+  OLD_ENV="$APP_DIR/.env"
+elif [ -f "$APP_DIR/fullstack/.env" ]; then
+  OLD_ENV="$APP_DIR/fullstack/.env"
+fi
+
+OLD_DATA=""
+if [ -d "$APP_DIR/data" ]; then
+  OLD_DATA="$APP_DIR/data"
+elif [ -d "$APP_DIR/fullstack/data" ]; then
+  OLD_DATA="$APP_DIR/fullstack/data"
+fi
+
+DB_PATH="${OLD_DATA:-$APP_DIR/fullstack/data}/havs.db"
 BACKUP_FILE=""
 
 log "[1/6] Backing up SQLite database"
@@ -98,12 +112,12 @@ if [ ! -d "$APP_DIR/.git" ]; then
     if [ -n "$(ls -A "$APP_DIR" 2>/dev/null)" ]; then
       SAVE_DIR="$BACKUP_DIR/pre-git-$(date +%Y%m%d-%H%M%S)"
       mkdir -p "$SAVE_DIR"
-      if [ -f "$APP_DIR/fullstack/.env" ]; then
-        cp -a "$APP_DIR/fullstack/.env" "$SAVE_DIR/env"
+      if [ -n "$OLD_ENV" ]; then
+        cp -a "$OLD_ENV" "$SAVE_DIR/env"
         SAVED_ENV="$SAVE_DIR/env"
       fi
-      if [ -d "$APP_DIR/fullstack/data" ]; then
-        cp -a "$APP_DIR/fullstack/data" "$SAVE_DIR/data"
+      if [ -n "$OLD_DATA" ]; then
+        cp -a "$OLD_DATA" "$SAVE_DIR/data"
         SAVED_DATA="$SAVE_DIR/data"
       fi
     fi
@@ -122,6 +136,18 @@ if [ ! -d "$APP_DIR/.git" ]; then
   fi
   chown -R "$RUN_USER" "$APP_DIR"
   log "    -> cloned $REPO_URL ($BRANCH)"
+fi
+
+UNIT_PATH="$(systemctl show -p FragmentPath --value "$SERVICE" 2>/dev/null || true)"
+CURRENT_WD="$(systemctl show -p WorkingDirectory --value "$SERVICE" 2>/dev/null || true)"
+if [ -f "$APP_DIR/fullstack/server.js" ]; then
+  if [ -n "$UNIT_PATH" ] && [ -f "$UNIT_PATH" ] && [ "$CURRENT_WD" = "$APP_DIR" ]; then
+    sed -i "s|^WorkingDirectory=.*|WorkingDirectory=$APP_DIR/fullstack|" "$UNIT_PATH"
+    systemctl daemon-reload
+    log "    -> service WorkingDirectory updated to $APP_DIR/fullstack"
+  elif [ -n "$CURRENT_WD" ] && [ "$CURRENT_WD" != "$APP_DIR/fullstack" ]; then
+    log "    WARNING: $SERVICE WorkingDirectory is '$CURRENT_WD' (expected '$APP_DIR/fullstack')"
+  fi
 fi
 
 log "[2/6] Pulling origin/$BRANCH"
