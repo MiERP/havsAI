@@ -136,6 +136,15 @@ test('session cookie is Secure behind HTTPS and for a non-local host', async () 
   assert.match(String(publicHost.headers['set-cookie'][0]), /Secure/);
 });
 
+test('session cookie is not Secure when nginx reports plain HTTP', async () => {
+  await request('POST', '/api/auth/request-code', { email: 'plain-http@example.com' });
+  const verified = await rawPost('/api/auth/verify', { email: 'plain-http@example.com', code: '123456' }, {
+    Host: 'havs.example.com',
+    'X-Forwarded-Proto': 'http'
+  });
+  assert.doesNotMatch(String(verified.headers['set-cookie'][0]), /Secure/);
+});
+
 test('a non-local host refuses OTP without a mailer and does not log the code', async () => {
   const lines = [];
   const original = console.log;

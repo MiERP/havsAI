@@ -202,6 +202,7 @@ function secureCookie(req) {
   if (req.socket && req.socket.encrypted) return true;
   const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
   if (proto === 'https') return true;
+  if (proto === 'http') return false;
   const host = String(req.headers.host || '').replace(/:\d+$/, '').toLowerCase();
   return !['localhost', '127.0.0.1', '[::1]', '::1'].includes(host);
 }
