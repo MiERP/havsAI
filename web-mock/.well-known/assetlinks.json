@@ -1,0 +1,13 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.use_as_origin"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.havs.ai",
+      "sha256_cert_fingerprints": ["8A:ED:4A:75:DA:40:3C:30:38:05:02:DC:E2:D9:5B:81:B2:1F:EB:33:1A:EC:3B:70:73:EB:BA:A4:3F:07:DC:E5"]
+    }
+  }
+]

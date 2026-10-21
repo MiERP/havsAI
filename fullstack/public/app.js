@@ -1,0 +1,895 @@
+const SUBJECTS = [
+  ['math', 'Toán'], ['physics', 'Lý'], ['chemistry', 'Hóa'], ['biology', 'Sinh'],
+  ['english', 'Anh'], ['literature', 'Văn'], ['history', 'Sử'], ['geography', 'Địa'], ['cs', 'Tin']
+];
+const VOICE_LABELS = { neil: 'Neil', aria: 'Aria', minh: 'Minh', lena: 'Lena' };
+const PROMPTS = {
+  math: ['Giải phương trình bậc 2', 'Tóm tắt công thức lượng giác', 'Luyện đề đạo hàm'],
+  physics: ['Định luật Newton', 'Bài tập mạch điện', 'Sóng cơ là gì?'],
+  chemistry: ['Cân bằng phương trình', 'Tính số mol', 'Bảng tuần hoàn'],
+  english: ['Sửa lỗi ngữ pháp', 'Viết đoạn văn 150 từ', 'Thì hiện tại hoàn thành'],
+  default: ['Giải thích khái niệm này', 'Cho mình ví dụ', 'Tóm tắt kiến thức']
+};
+
+const state = {
+  session: null, profile: null, user: null,
+  view: 'boot', tab: 'chat', error: '',
+  route: { name: 'chat', params: {} }, routeError: '',
+  chats: [], chatId: null, messages: [], subject: 'math',
+  streaming: false, imageUrl: null, uploadId: null, uploadName: '', uploadPages: 0, uploadMime: '', voiceOn: true,
+  voices: [], preps: [], dashboard: null,
+  realtime: null, live: false, prepPlan: null,
+  examPreps: [], exam: null, examMode: 'all', examQuery: '', examCatalog: [], examShared: [], curriculum: {}, past: null,
+  attempt: null, labApps: [], labApp: null, calendar: [], showcase: null, teacher: null, teacherPreps: [], child: null, share: null, settings: {},
+  onboarding: { step: 0, role: 'student', name: '', age: '', country: 'Việt Nam', subjects: ['math'], voice: 'neil', goal: 'general', examDate: '', childEmail: '', school: '', className: '' }
+};
+
+const app = document.getElementById('app');
+const toastEl = document.getElementById('toast');
+let toastTimer = null;
+
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function toast(message) {
+  toastEl.textContent = message;
+  toastEl.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastEl.hidden = true; }, 2600);
+}
+
+async function api(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const res = await fetch(path, { credentials: 'same-origin', ...options, headers });
+  const text = await res.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+  if (!res.ok) {
+    const error = new Error(data.error || res.statusText);
+    error.status = res.status;
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
+function subjectName(id) {
+  return (SUBJECTS.find(([key]) => key === id) || [id, id])[1];
+}
+
+function render() {
+  if (state.view === 'boot') app.innerHTML = renderBoot();
+  else if (state.view === 'login') app.innerHTML = renderLogin();
+  else if (state.view === 'onboarding') app.innerHTML = renderOnboarding();
+  else app.innerHTML = renderMain();
+  window.scrollTo({ top: 0 });
+}
+
+function renderBoot() {
+  return `<div class="screen center pad"><div class="center-text"><div class="logo" style="font-size:28px">havs<span>AI</span></div><p style="margin-top:10px">Đang kết nối…</p></div></div>`;
+}
+
+function renderLogin() {
+  return `<div class="screen center pad">
+    <div class="center-text" style="margin-bottom:26px">
+      <div class="logo" style="font-size:30px">havs<span>AI</span></div>
+      <h1 style="margin-top:18px">Gia sư AI 24/7 cho mọi môn học</h1>
+      <p>Đăng nhập bằng email để bắt đầu. havsAI dùng OTP dev: <b>123456</b>.</p>
+    </div>
+    <div class="card">
+      <div class="field"><label>Email</label><input id="email" class="input" type="email" inputmode="email" placeholder="ban@example.com" autocomplete="email" /></div>
+      <div class="field"><label>Mã OTP</label><input id="code" class="input" inputmode="numeric" placeholder="123456" autocomplete="one-time-code" /></div>
+      <div class="row">
+        <button class="btn secondary" data-action="send-code">Gửi mã</button>
+        <button class="btn" data-action="verify">Đăng nhập</button>
+      </div>
+      ${state.error ? `<p style="color:var(--danger);margin-top:12px">${esc(state.error)}</p>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderOnboarding() {
+  const o = state.onboarding;
+  const steps = [0, 1, 2, 3, 4];
+  let body = '';
+  if (o.step === 0) {
+    body = `<h1>Bạn đang dùng havsAI với vai trò nào?</h1><p>Chúng mình sẽ cá nhân hoá lộ trình học cho bạn.</p>
+      <div class="list">${[['student', 'Học sinh'], ['parent', 'Phụ huynh'], ['teacher', 'Giáo viên']].map(([id, label]) =>
+        `<button class="item" data-action="role" data-value="${id}" style="text-align:left;border-color:${o.role === id ? 'var(--accent)' : 'var(--line)'}"><h3>${label}</h3><p>${id === 'student' ? 'Học tập, luyện đề và hỏi bài.' : id === 'parent' ? 'Theo dõi tiến độ của con.' : 'Soạn bài và quản lý lớp.'}</p></button>`).join('')}</div>`;
+  } else if (o.step === 1) {
+    body = `<h1>Giới thiệu về bạn</h1><p>Tên và tuổi giúp havsAI chọn cách giải thích phù hợp.</p>
+      <div class="field"><label>Tên</label><input id="ob-name" class="input" value="${esc(o.name)}" placeholder="Tên của bạn" /></div>
+      <div class="field"><label>Tuổi</label><input id="ob-age" class="input" inputmode="numeric" value="${esc(o.age)}" placeholder="16" /></div>
+      ${o.role === 'parent' ? `<div class="field"><label>Email của con (tuỳ chọn)</label><input id="ob-child" class="input" type="email" value="${esc(o.childEmail)}" placeholder="con@example.com" /><span class="small">havsAI sẽ liên kết tài khoản con để bạn xem tiến độ.</span></div>` : ''}
+      ${o.role === 'teacher' ? `<div class="field"><label>Trường</label><input id="ob-school" class="input" value="${esc(o.school)}" placeholder="Tên trường" /></div>
+        <div class="field"><label>Lớp phụ trách</label><input id="ob-class" class="input" value="${esc(o.className)}" placeholder="10A1" /></div>` : ''}`;
+  } else if (o.step === 2) {
+    body = `<h1>Bạn muốn học môn nào?</h1><p>Chọn một hoặc nhiều môn.</p>
+      <div class="chips">${SUBJECTS.map(([id, label]) => `<button class="chip ${o.subjects.includes(id) ? 'active' : ''}" data-action="subject" data-value="${id}">${label}</button>`).join('')}</div>
+      <div class="field" style="margin-top:18px"><label>Quốc gia</label><input id="ob-country" class="input" value="${esc(o.country)}" /></div>`;
+  } else if (o.step === 3) {
+    body = `<h1>Chọn giọng nói</h1><p>Bạn có thể đổi bất cứ lúc nào trong Cài đặt.</p>
+      ${state.voices.map((v) => `<div class="voice-card ${o.voice === v.id ? 'active' : ''}" data-action="voice" data-value="${v.id}">
+        <div class="avatar">${esc(v.name[0])}</div>
+        <div class="grow"><b>${esc(v.name)}</b><p style="margin:2px 0 0">${esc(v.locale)} · ${v.gender === 'male' ? 'Nam' : 'Nữ'}</p></div>
+        <button class="btn ghost" data-action="preview-voice" data-value="${v.id}">Nghe thử</button>
+      </div>`).join('')}
+      <div class="voice-card ${o.voice === 'none' ? 'active' : ''}" data-action="voice" data-value="none">
+        <div class="avatar">×</div><div class="grow"><b>Không dùng giọng nói</b><p style="margin:2px 0 0">Chỉ trả lời bằng văn bản</p></div>
+      </div>`;
+  } else {
+    body = `<h1>Mục tiêu của bạn</h1><p>havsAI sẽ xây lộ trình theo mục tiêu này.</p>
+      <div class="list">
+        <button class="item" data-action="goal" data-value="general" style="text-align:left;border-color:${o.goal === 'general' ? 'var(--accent)' : 'var(--line)'}"><h3>Học đều mỗi ngày</h3><p>Hiểu bài, làm bài tập và tiến bộ từng tuần.</p></button>
+        <button class="item" data-action="goal" data-value="exam" style="text-align:left;border-color:${o.goal === 'exam' ? 'var(--accent)' : 'var(--line)'}"><h3>Ôn thi cấp tốc</h3><p>Tập trung vào đề thi và mục tiêu điểm số.</p></button>
+      </div>
+      ${o.goal === 'exam' ? `<div class="field" style="margin-top:14px"><label>Ngày thi (tuỳ chọn)</label><input id="ob-exam" class="input" type="date" value="${esc(o.examDate)}" /></div>` : ''}`;
+  }
+  return `<div class="screen pad">
+    <div class="steps">${steps.map((s) => `<span class="${s <= o.step ? 'on' : ''}"></span>`).join('')}</div>
+    ${body}
+    <div style="flex:1"></div>
+    <div class="row" style="margin-top:22px">
+      ${o.step > 0 ? `<button class="btn secondary" data-action="ob-back">Quay lại</button>` : ''}
+      <button class="btn" data-action="ob-next">${o.step === 4 ? 'Hoàn tất' : 'Tiếp tục'}</button>
+    </div>
+  </div>`;
+}
+
+function renderMain() {
+  const p = state.profile || {};
+  const route = state.route || { name: 'chat', params: {} };
+  const feature = renderFeaturePage(route);
+  const tab = route.name === 'chat' ? 'chat'
+    : route.name.startsWith('exam') ? 'prep'
+      : route.name === 'dashboard' || route.name === 'child' ? 'stats'
+        : route.name === 'settings' ? 'settings' : '';
+  state.tab = tab || 'chat';
+  const fallback = tab === 'chat' ? renderChat() : tab === 'prep' ? renderPrep() : tab === 'stats' ? renderStats() : renderSettings();
+  return `<div class="screen main-screen">
+    <div class="header"><div class="inner"><div class="logo">havs<span>AI</span></div><span class="badge">BETA</span><span id="live" class="live ${state.live ? 'on' : ''}">${state.live ? '● live' : '○ offline'}</span><div class="grow"></div>
+      <div class="avatar" data-action="go-settings">${esc((p.name || 'H')[0].toUpperCase())}</div></div></div>
+    <div class="main">${feature || fallback}</div>
+    <div class="bottom-nav">
+      ${[['chat', 'Trò chuyện', '💬', '/'], ['prep', 'Ôn thi', '📚', '/exam-preps'], ['stats', 'Tiến độ', '📈', '/dashboard'], ['settings', 'Cài đặt', '⚙️', '/settings']].map(([id, label, icon, href]) =>
+        `<button class="nav-item ${tab === id ? 'active' : ''}" data-action="nav" data-value="${href}"><span class="ico">${icon}</span>${label}</button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function renderChat() {
+  const prompts = PROMPTS[state.subject] || PROMPTS.default;
+  return `<div class="subject-bar">${SUBJECTS.map(([id, label]) => `<button class="chip ${state.subject === id ? 'active' : ''}" data-action="subject-tab" data-value="${id}">${label}</button>`).join('')}</div>
+    <div class="chat-wrap" id="chat-wrap">
+      ${state.messages.length === 0 ? `<div class="center-text" style="padding:30px 10px">
+        <div class="logo" style="font-size:24px">havs<span>AI</span></div>
+        <h1 style="font-size:22px;margin-top:14px">Hỏi mình bất cứ điều gì</h1>
+        <p>Môn ${esc(subjectName(state.subject))} · Trả lời từng bước, có ví dụ.</p>
+      </div>` : state.messages.map(renderMessage).join('')}
+    </div>
+    <div class="suggestions">${prompts.map((text) => `<button data-action="prompt" data-value="${esc(text)}">${esc(text)}</button>`).join('')}</div>
+    <div id="image-preview" class="${state.uploadId ? '' : 'hidden'}" style="padding:8px 12px">
+      ${state.uploadMime?.startsWith('image/') && state.imageUrl
+        ? `<img src="${esc(state.imageUrl)}" style="max-height:80px;border-radius:10px" />`
+        : state.uploadId
+          ? `<span class="tool">📄 ${esc(state.uploadName)}${state.uploadPages ? ` · ${state.uploadPages} trang` : ''}</span>`
+          : ''}
+    </div>
+    <div class="composer">
+      <input id="file-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" class="hidden" />
+      <button class="icon-btn" data-action="open-canvas" title="Vẽ">✎</button>
+      <button class="icon-btn" data-action="pick-file" title="Đính kèm">＋</button>
+      <input id="chat-input" class="input" placeholder="Nhập câu hỏi…" autocomplete="off" />
+      <button class="icon-btn ${state.voiceOn ? 'send' : ''}" data-action="toggle-voice" title="Giọng nói">${state.voiceOn ? '🔊' : '🔇'}</button>
+      <button class="icon-btn send" data-action="send" ${state.streaming ? 'disabled' : ''}>➤</button>
+    </div>`;
+}
+
+function formatMessage(text) {
+  let value = esc(text);
+  value = value.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  value = value.replace(/^### (.+)$/gm, '<strong>$1</strong>');
+  value = value.replace(/^- (.+)$/gm, '• $1');
+  value = value.replace(/\\\[/g, '').replace(/\\\]/g, '').replace(/\\\(/g, '').replace(/\\\)/g, '');
+  return value.replace(/\n/g, '<br>');
+}
+
+function messageTools(m) {
+  try {
+    if (m.tools_json) return JSON.parse(m.tools_json);
+    if (Array.isArray(m.tools)) return m.tools;
+  } catch {}
+  return [];
+}
+
+function toolChips(tools) {
+  if (!tools || !tools.length) return '';
+  return `<div class="tools">${tools.filter((t) => t.status !== 'started' && t.status !== 'error').map((t) => {
+    if (t.tool === 'web_search') return `<span class="tool">🔎 ${esc(t.query || 'web search')}${t.results?.length ? ` · ${t.results.length} kết quả` : ''}</span>`;
+    if (t.tool === 'vision_analyze') return `<span class="tool">👁 ${esc(t.filename || 'ảnh')}${t.chars ? ` · ${t.chars} ký tự` : ''}</span>`;
+    return `<span class="tool">📄 ${esc(t.filename || 'tài liệu')}${t.pages ? ` · ${t.pages} trang` : ''}${t.scanned ? ' · OCR' : ''}</span>`;
+  }).join('')}</div>`;
+}
+
+function renderMessage(m) {
+  return `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}"><div class="bubble">${toolChips(messageTools(m))}${m.image_url ? `<img src="${esc(m.image_url)}" alt="ảnh đính kèm" />` : ''}${formatMessage(m.content)}</div></div>`;
+}
+
+function renderPlan() {
+  const plan = state.prepPlan;
+  if (!plan) return '';
+  return `<div class="card" style="margin-bottom:14px">
+    <div class="row"><h2 style="margin:0">${esc(plan.title || 'Kế hoạch ôn thi')}</h2><div class="grow"></div><button class="btn ghost" data-action="close-plan">Đóng</button></div>
+    <p>${esc(plan.summary || '')}</p>
+    ${(plan.days || []).map((day) => `<div style="margin:12px 0"><b>Ngày ${esc(day.day)} · ${esc(day.focus || '')}</b><ul>${(day.tasks || []).map((task) => `<li>${esc(task)}</li>`).join('')}</ul></div>`).join('')}
+    ${(plan.practice || []).length ? `<h2>Luyện tập</h2>${plan.practice.map((item) => `<div style="margin:10px 0"><b>${esc(item.question)}</b><p>${esc(item.answer || '')}</p></div>`).join('')}` : ''}
+    ${(plan.tips || []).length ? `<h2>Mẹo</h2><ul>${plan.tips.map((tip) => `<li>${esc(tip)}</li>`).join('')}</ul>` : ''}
+  </div>`;
+}
+
+function renderPrep() {
+  return `<div class="pad">
+    <h1>Ôn thi</h1><p>Tạo đề, để havsAI sinh kế hoạch 5 ngày và luyện tập theo từng bước.</p>
+    ${renderPlan()}
+    <div class="list" style="margin-bottom:18px">
+      ${state.preps.length ? state.preps.map((prep) => {
+        const hasPlan = !!prep.plan_json;
+        return `<div class="item"><h3>${esc(prep.title)}</h3><p>${esc(subjectName(prep.subject))} · ${esc(prep.exam_date || 'chưa có ngày')} · ${esc(prep.status)}</p>
+          <div class="row" style="margin-top:10px">
+            ${hasPlan
+              ? `<button class="btn secondary" data-action="view-prep" data-value="${prep.id}">Xem kế hoạch</button>`
+              : `<button class="btn" data-action="generate-prep" data-value="${prep.id}">Sinh kế hoạch</button>`}
+          </div></div>`;
+      }).join('') : '<div class="item"><p>Chưa có đề ôn tập nào.</p></div>'}
+    </div>
+    <div class="card">
+      <h2>Tạo đề mới</h2>
+      <div class="field"><label>Tên đề</label><input id="prep-title" class="input" placeholder="Đề giữa kỳ Toán" /></div>
+      <div class="field"><label>Môn</label><select id="prep-subject" class="input">${SUBJECTS.map(([id, label]) => `<option value="${id}">${label}</option>`).join('')}</select></div>
+      <div class="field"><label>Ngày thi</label><input id="prep-date" class="input" type="date" /></div>
+      <button class="btn" data-action="create-prep">Tạo đề & sinh kế hoạch</button>
+    </div>
+  </div>`;
+}
+
+function renderStats() {
+  const d = state.dashboard || { chats: 0, preps: 0, messages: 0, usageMinutes: 0, plan: 'free' };
+  return `<div class="pad">
+    <h1>Tiến độ</h1><p>Tổng quan hoạt động học tập của bạn.</p>
+    <div class="stat-grid">
+      <div class="stat"><b>${d.chats}</b><span>Cuộc trò chuyện</span></div>
+      <div class="stat"><b>${d.messages}</b><span>Tin nhắn</span></div>
+      <div class="stat"><b>${d.preps}</b><span>Đề ôn tập</span></div>
+      <div class="stat"><b>${d.usageMinutes}</b><span>Phút đã dùng</span></div>
+    </div>
+    <div class="card" style="margin-top:16px"><h2>Sử dụng</h2><p>${d.usageMinutes} phút đã dùng. havsAI không giới hạn số câu hỏi.</p></div>
+    ${d.role === 'parent' ? `<div class="card" style="margin-top:16px"><h2>Tài khoản con</h2>
+      ${(d.children || []).length ? d.children.map((link) => `<div class="item" style="margin-bottom:8px"><h3>${esc(link.child?.name || link.email)}</h3><p>${link.status === 'linked' ? `${link.child.chats} chat · ${link.child.preps} đề · ${link.child.usageMinutes} phút` : 'Đang chờ con đăng ký tài khoản'}</p></div>`).join('') : '<p>Chưa liên kết tài khoản con.</p>'}
+    </div>` : ''}
+    ${d.role === 'teacher' ? `<div class="card" style="margin-top:16px"><h2>Lớp học</h2><p>${esc(d.school || 'Chưa cập nhật trường')} · ${esc(d.className || 'Chưa cập nhật lớp')}</p></div>` : ''}
+  </div>`;
+}
+
+function renderSettings() {
+  const p = state.profile || {};
+  return `<div class="pad">
+    <h1>Cài đặt</h1>
+    <div class="card" style="margin-bottom:14px">
+      <div class="row"><div class="avatar">${esc((p.name || 'A')[0].toUpperCase())}</div><div class="grow"><b>${esc(p.name || 'Học sinh')}</b><p style="margin:2px 0 0">${esc(state.user?.email || '')}</p></div></div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <h2>Hồ sơ</h2>
+      <div class="field"><label>Tên hiển thị</label><input id="set-name" class="input" value="${esc(p.name || '')}" /></div>
+      <div class="field"><label>Giọng nói</label><select id="set-voice" class="input">${state.voices.map((v) => `<option value="${v.id}" ${p.voice === v.id ? 'selected' : ''}>${esc(v.name)} (${esc(v.locale)})</option>`).join('')}<option value="none" ${p.voice === 'none' ? 'selected' : ''}>Không dùng</option></select></div>
+      <button class="btn secondary" data-action="save-profile">Lưu hồ sơ</button>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <h2>Sử dụng</h2><p>${p.usageMinutes || 0} phút đã dùng · không giới hạn</p>
+    </div>
+    ${p.role === 'parent' ? `<div class="card" style="margin-bottom:14px">
+      <h2>Tài khoản con</h2>
+      <div class="field"><label>Email con</label><input id="child-email" class="input" type="email" placeholder="con@example.com" /></div>
+      <button class="btn secondary" data-action="add-child">Liên kết tài khoản</button>
+      <div class="list" style="margin-top:10px">
+        ${(state.dashboard?.children || []).length ? state.dashboard.children.map((link) => `<div class="item"><h3>${esc(link.child?.name || link.email)}</h3><p>${link.status === 'linked' ? `${link.child.chats} chat · ${link.child.preps} đề · ${link.child.usageMinutes} phút` : 'Đang chờ con đăng ký'}</p></div>`).join('') : '<p>Chưa liên kết tài khoản con.</p>'}
+      </div>
+    </div>` : ''}
+    ${p.role === 'teacher' ? `<div class="card" style="margin-bottom:14px"><h2>Lớp học</h2><p>${esc(p.school || 'Chưa cập nhật trường')} · ${esc(p.className || 'Chưa cập nhật lớp')}</p></div>` : ''}
+    <button class="btn danger" data-action="logout">Đăng xuất</button>
+    <p class="small center-text" style="margin-top:18px">havsAI · backend Node + SQLite</p>
+  </div>`;
+}
+
+function renderUpgrade() {
+  return '';
+}
+
+function addToolChip(container, event) {
+  if (!container) return;
+  if (event.tool === 'vision_analyze') {
+    const existing = container.querySelector('[data-vision="1"]');
+    if (event.status === 'started') {
+      const chip = document.createElement('span');
+      chip.className = 'tool';
+      chip.dataset.vision = '1';
+      chip.textContent = `👁 Đang đọc ảnh…`;
+      container.appendChild(chip);
+    } else {
+      const label = event.status === 'done'
+        ? `👁 ${event.filename || 'ảnh'}${event.chars ? ` · ${event.chars} ký tự` : ''}`
+        : `👁 Không đọc được ảnh`;
+      if (existing) {
+        existing.dataset.vision = '';
+        existing.textContent = label;
+      } else {
+        const chip = document.createElement('span');
+        chip.className = 'tool';
+        chip.textContent = label;
+        container.appendChild(chip);
+      }
+    }
+    return;
+  }
+  if (event.status === 'started') {
+    const chip = document.createElement('span');
+    chip.className = 'tool';
+    chip.dataset.started = '1';
+    chip.textContent = `🔎 Đang tìm: ${event.query || ''}`;
+    container.appendChild(chip);
+    return;
+  }
+  if (event.tool === 'web_search') {
+    const started = container.querySelector('[data-started="1"]');
+    if (started) {
+      started.dataset.started = '';
+      started.textContent = `🔎 ${event.query || 'web search'} · ${event.results?.length || 0} kết quả`;
+      if (event.results?.length) {
+        started.title = event.results.map((r) => `${r.title} — ${r.url}`).join('\n');
+      }
+    } else {
+      const chip = document.createElement('span');
+      chip.className = 'tool';
+      chip.textContent = `🔎 ${event.query || 'web search'} · ${event.results?.length || 0} kết quả`;
+      container.appendChild(chip);
+    }
+  } else if (event.tool === 'read_material') {
+    const chip = document.createElement('span');
+    chip.className = 'tool';
+    chip.textContent = `📄 ${event.filename || 'tài liệu'}${event.pages ? ` · ${event.pages} trang` : ''}${event.scanned ? ' · OCR' : ''}`;
+    container.appendChild(chip);
+  }
+}
+
+function connectRealtime() {
+  if (state.realtime) return;
+  try {
+    const source = new EventSource('/api/realtime');
+    state.realtime = source;
+    source.onopen = () => setLive(true);
+    source.onerror = () => setLive(false);
+    source.onmessage = (event) => {
+      let payload;
+      try { payload = JSON.parse(event.data); } catch { return; }
+      if (payload.type === 'ping' || payload.type === 'connected') return;
+      if (payload.event === 'chat.message') refreshDashboard().catch(() => {});
+      if (payload.event === 'prep.updated') loadPreps().then(() => { if (state.tab === 'prep') render(); }).catch(() => {});
+      if (payload.event === 'parent.updated') refreshDashboard().then(() => { if (state.tab === 'stats' || state.tab === 'settings') render(); }).catch(() => {});
+    };
+  } catch {}
+}
+
+function setLive(on) {
+  state.live = on;
+  const el = document.getElementById('live');
+  if (el) {
+    el.textContent = on ? '● live' : '○ offline';
+    el.className = `live ${on ? 'on' : ''}`;
+  }
+}
+
+function openCanvas() {
+  if (document.getElementById('canvas-overlay')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'canvas-overlay';
+  overlay.className = 'canvas-overlay';
+  overlay.innerHTML = `<div class="canvas-bar">
+    <button class="btn ghost" data-canvas="close">Đóng</button>
+    <button class="btn ghost" data-canvas="clear">Xóa</button>
+    <button class="btn" data-canvas="send">Gửi bản vẽ</button>
+  </div><canvas></canvas>`;
+  document.body.appendChild(overlay);
+  const canvas = overlay.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const height = window.innerHeight - 56;
+  canvas.width = window.innerWidth * dpr;
+  canvas.height = height * dpr;
+  canvas.style.width = `${window.innerWidth}px`;
+  canvas.style.height = `${height}px`;
+  ctx.scale(dpr, dpr);
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#8b7cff';
+  let drawing = false;
+  const point = (event) => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  };
+  canvas.addEventListener('pointerdown', (event) => {
+    drawing = true;
+    const p = point(event);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener('pointermove', (event) => {
+    if (!drawing) return;
+    const p = point(event);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  });
+  canvas.addEventListener('pointerup', () => { drawing = false; });
+  overlay.addEventListener('click', async (event) => {
+    const action = event.target.closest('[data-canvas]')?.dataset.canvas;
+    if (action === 'close') overlay.remove();
+    if (action === 'clear') ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (action === 'send') {
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        await uploadFile(new File([blob], 'drawing.png', { type: 'image/png' }));
+        overlay.remove();
+        render();
+      }, 'image/png');
+    }
+  });
+}
+
+async function boot() {
+  try {
+    await loadVoices();
+    const session = await api('/api/auth/session');
+    state.session = session;
+    if (!session.authenticated) {
+      state.view = 'login';
+      if (location.pathname !== '/login') history.replaceState({}, '', '/login');
+      render();
+      return;
+    }
+    state.user = session.user;
+    state.profile = session.profile;
+    if (!session.profile?.onboardingDone) {
+      state.onboarding = {
+        ...state.onboarding,
+        role: session.profile?.role || 'student',
+        name: session.profile?.name || '',
+        age: session.profile?.age || '',
+        country: session.profile?.country || 'Việt Nam',
+        subjects: session.profile?.subjects?.length ? session.profile.subjects : ['math'],
+        voice: session.profile?.voice || 'neil',
+        goal: session.profile?.goal || 'general',
+        examDate: session.profile?.examDate || '',
+        childEmail: session.profile?.childEmail || '',
+        school: session.profile?.school || '',
+        className: session.profile?.className || ''
+      };
+      state.view = 'onboarding';
+      history.replaceState({}, '', '/onboarding');
+      render();
+      return;
+    }
+    state.view = 'main';
+    if (location.pathname === '/login' || location.pathname === '/onboarding') history.replaceState({}, '', '/');
+    state.route = parseRoute();
+    connectRealtime();
+    await refreshChats();
+    await refreshDashboard();
+    await loadRouteData();
+    render();
+  } catch (error) {
+    state.view = 'login';
+    state.error = error.message;
+    render();
+  }
+}
+
+async function loadVoices() {
+  try {
+    const data = await api('/api/voices');
+    state.voices = data.voices || [];
+  } catch {
+    state.voices = [
+      { id: 'neil', name: 'Neil', locale: 'vi-VN', gender: 'male' },
+      { id: 'aria', name: 'Aria', locale: 'vi-VN', gender: 'female' }
+    ];
+  }
+}
+
+async function refreshChats() {
+  const data = await api('/api/chats');
+  state.chats = data.chats || [];
+}
+
+async function refreshDashboard() {
+  state.dashboard = await api('/api/dashboard');
+}
+
+async function openChat(chat) {
+  state.chatId = chat.id;
+  state.subject = chat.subject || 'math';
+  const data = await api(`/api/chats/${chat.id}/messages`);
+  state.messages = data.messages || [];
+  state.tab = 'chat';
+  state.route = { name: 'chat', params: {} };
+  if (location.pathname !== '/') history.replaceState({}, '', '/');
+  render();
+  scrollChat();
+}
+
+function scrollChat() {
+  requestAnimationFrame(() => {
+    const wrap = document.getElementById('chat-wrap');
+    if (wrap) wrap.scrollTop = wrap.scrollHeight;
+    window.scrollTo(0, document.body.scrollHeight);
+  });
+}
+
+async function sendMessage(text) {
+  if (state.streaming) return;
+  if (!text.trim()) return;
+  state.streaming = true;
+  state.error = '';
+  state.messages.push({ role: 'user', content: text, image_url: state.uploadMime?.startsWith('image/') ? state.imageUrl : null });
+  render();
+  scrollChat();
+  const bubble = document.createElement('div');
+  bubble.className = 'msg assistant';
+  bubble.innerHTML = '<div class="bubble"><div class="tools"></div><span class="content"><span class="typing">havsAI đang trả lời…</span></span></div>';
+  document.getElementById('chat-wrap').appendChild(bubble);
+  scrollChat();
+  const contentEl = bubble.querySelector('.content');
+  const toolsEl = bubble.querySelector('.tools');
+  const toolEvents = [];
+  contentEl.textContent = '';
+
+  try {
+    const res = await fetch('/api/chat/stream', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId: state.chatId, message: text, subject: state.subject, uploadId: state.uploadId, imageUrl: state.imageUrl })
+    });
+    if (!res.ok || !res.body) throw new Error('Không gửi được tin nhắn');
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let full = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop() || '';
+      for (const event of events) {
+        for (const line of event.split('\n')) {
+          if (!line.startsWith('data:')) continue;
+          let json;
+          try { json = JSON.parse(line.slice(5).trim()); } catch { continue; }
+          if (json.type === 'tool') {
+            if (json.status !== 'started') toolEvents.push(json);
+            addToolChip(toolsEl, json);
+            continue;
+          }
+          if (json.type === 'token') {
+            full += json.value;
+            contentEl.textContent = full;
+            scrollChat();
+          } else if (json.type === 'done') {
+            state.chatId = json.chatId;
+            if (json.usage && state.profile) {
+              state.profile.usageMinutes = json.usage.minutes;
+              state.profile.usageLimit = json.usage.limit;
+            }
+          }
+        }
+      }
+    }
+    state.messages.push({ role: 'assistant', content: full, tools_json: JSON.stringify(toolEvents) });
+    state.imageUrl = null;
+    state.uploadId = null;
+    state.uploadName = '';
+    state.uploadPages = 0;
+    state.uploadMime = '';
+    await refreshChats();
+    await refreshDashboard();
+    render();
+    scrollChat();
+    if (state.voiceOn && state.profile?.voice !== 'none') speak(full);
+  } catch (error) {
+    contentEl.textContent = `Lỗi: ${error.message}`;
+    toast(error.message);
+  } finally {
+    state.streaming = false;
+    const sendBtn = document.querySelector('[data-action="send"]');
+    if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+function speak(text) {
+  if (!('speechSynthesis' in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text.slice(0, 1200));
+    utterance.lang = state.profile?.locale || 'vi-VN';
+    utterance.rate = 1;
+    window.speechSynthesis.speak(utterance);
+  } catch {}
+}
+
+async function previewVoice(id) {
+  if (id === 'none') return;
+  if (!('speechSynthesis' in window)) { toast('Thiết bị không hỗ trợ TTS'); return; }
+  const phrase = 'Xin chào, mình là havsAI. Cùng học bài hôm nay nhé.';
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(phrase);
+    utterance.lang = 'vi-VN';
+    const voices = window.speechSynthesis.getVoices();
+    const match = voices.find((v) => v.lang?.toLowerCase().startsWith('vi')) || voices[0];
+    if (match) utterance.voice = match;
+    window.speechSynthesis.speak(utterance);
+  } catch {}
+}
+
+async function resizeImage(file, maxEdge = 1568, quality = 0.82) {
+  if (!file.type.startsWith('image/') || typeof createImageBitmap !== 'function') return file;
+  try {
+    const bitmap = await Promise.race([
+      createImageBitmap(file),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('resize_timeout')), 10000))
+    ]);
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+    if (scale >= 0.999 && file.size <= 1.2 * 1024 * 1024) {
+      bitmap.close?.();
+      return file;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg', lastModified: file.lastModified });
+  } catch {
+    return file;
+  }
+}
+
+async function uploadFile(file) {
+  if (!file) return;
+  if (file.size > 8 * 1024 * 1024) { toast('Tệp tối đa 8MB'); return; }
+  const prepared = await resizeImage(file);
+  let base64;
+  try {
+    base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(prepared);
+    });
+  } catch {
+    toast('Không đọc được tệp. Hãy chọn tệp khác.');
+    return;
+  }
+  try {
+    const data = await api('/api/uploads', {
+      method: 'POST',
+      body: JSON.stringify({ filename: prepared.name, mime: prepared.type, dataBase64: base64 })
+    });
+    state.uploadId = data.id;
+    state.imageUrl = data.url;
+    state.uploadName = prepared.name;
+    state.uploadPages = data.pageCount || 0;
+    state.uploadMime = data.mime || prepared.type;
+    render();
+    toast(data.pageCount ? `Đã đính kèm PDF (${data.pageCount} trang)` : 'Đã đính kèm tệp');
+  } catch (error) {
+    const code = error.data?.error || error.message;
+    const messages = {
+      pdf_password_protected: 'PDF có mật khẩu, hãy bỏ mật khẩu trước khi gửi.',
+      pdf_too_many_pages: `PDF có ${error.data?.pages || '?'} trang, tối đa ${error.data?.max || 50}.`,
+      pdf_parse_failed: 'Không đọc được PDF. Hãy gửi ảnh trang để OCR.',
+      unsupported_type: 'Định dạng không hỗ trợ (PNG/JPEG/WebP/PDF).',
+      invalid_size: 'Tệp tối đa 8MB.'
+    };
+    toast(messages[code] || ('Không tải được tệp: ' + error.message));
+  }
+}
+
+document.addEventListener('click', async (event) => {
+  const el = event.target.closest('[data-action]');
+  if (!el) return;
+  const action = el.dataset.action;
+  const value = el.dataset.value;
+
+  if (action === 'send-code') {
+    const email = document.getElementById('email')?.value.trim();
+    try {
+      const data = await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ email }) });
+      toast(data.devCode ? `Mã OTP dev: ${data.devCode}` : 'Đã gửi mã');
+    } catch (error) { toast(error.message); }
+  } else if (action === 'verify') {
+    const email = document.getElementById('email')?.value.trim();
+    const code = document.getElementById('code')?.value.trim();
+    try {
+      const data = await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ email, code }) });
+      state.user = data.user; state.profile = data.profile;
+      if (!data.profile?.onboardingDone) {
+        state.view = 'onboarding';
+        history.replaceState({}, '', '/onboarding');
+      } else {
+        state.view = 'main';
+        history.replaceState({}, '', '/');
+        state.route = parseRoute();
+        connectRealtime();
+        await refreshChats();
+        await refreshDashboard();
+        await loadRouteData();
+      }
+      render();
+    } catch (error) { toast(error.message); state.error = error.message; render(); }
+  } else if (action === 'role') {
+    state.onboarding.role = value; render();
+  } else if (action === 'subject') {
+    const list = state.onboarding.subjects;
+    state.onboarding.subjects = list.includes(value) ? list.filter((x) => x !== value) : [...list, value];
+    if (!state.onboarding.subjects.length) state.onboarding.subjects = ['math'];
+    render();
+  } else if (action === 'voice') {
+    state.onboarding.voice = value;
+    await api('/api/onboarding', { method: 'PUT', body: JSON.stringify({ voice: value }) }).catch(() => {});
+    render();
+  } else if (action === 'preview-voice') {
+    event.stopPropagation();
+    previewVoice(value);
+  } else if (action === 'goal') {
+    state.onboarding.goal = value; render();
+  } else if (action === 'ob-back') {
+    state.onboarding.step = Math.max(0, state.onboarding.step - 1); render();
+  } else if (action === 'ob-next') {
+    const o = state.onboarding;
+    if (o.step === 1) {
+      o.name = document.getElementById('ob-name')?.value.trim() || o.name;
+      o.age = document.getElementById('ob-age')?.value.trim() || o.age;
+      if (o.role === 'parent') o.childEmail = document.getElementById('ob-child')?.value.trim() || o.childEmail;
+      if (o.role === 'teacher') {
+        o.school = document.getElementById('ob-school')?.value.trim() || o.school;
+        o.className = document.getElementById('ob-class')?.value.trim() || o.className;
+      }
+    }
+    if (o.step === 2) o.country = document.getElementById('ob-country')?.value.trim() || o.country;
+    if (o.step === 4 && o.goal === 'exam') o.examDate = document.getElementById('ob-exam')?.value || o.examDate;
+    state.onboarding.step = Math.min(4, o.step + 1);
+    if (state.onboarding.step === 4 && state.voices.length === 0) await loadVoices();
+    if (o.step >= 4) {
+      try {
+        const data = await api('/api/onboarding', { method: 'PUT', body: JSON.stringify({ ...o, onboarding_step: 4, done: true }) });
+        state.profile = data.profile;
+        if (o.role === 'parent' && o.childEmail) {
+          await api('/api/parent/children', { method: 'POST', body: JSON.stringify({ email: o.childEmail }) }).catch(() => {});
+        }
+        state.view = 'main';
+        history.replaceState({}, '', '/');
+        state.route = parseRoute();
+        connectRealtime();
+        await refreshChats(); await refreshDashboard();
+        await loadRouteData();
+        render();
+      } catch (error) { toast(error.message); }
+      return;
+    }
+    render();
+  } else if (action === 'tab') {
+    navigate(value === 'chat' ? '/' : value === 'prep' ? '/exam-preps' : value === 'stats' ? '/dashboard' : '/settings');
+  } else if (action === 'go-settings') {
+    navigate('/settings');
+  } else if (action === 'subject-tab') {
+    state.subject = value; state.chatId = null; state.messages = []; render();
+  } else if (action === 'prompt') {
+    sendMessage(value);
+  } else if (action === 'toggle-voice') {
+    state.voiceOn = !state.voiceOn; render();
+  } else if (action === 'pick-file') {
+    document.getElementById('file-input')?.click();
+  } else if (action === 'send') {
+    const input = document.getElementById('chat-input');
+    const text = input?.value || '';
+    if (input) input.value = '';
+    await sendMessage(text);
+  } else if (action === 'save-profile') {
+    const name = document.getElementById('set-name')?.value.trim();
+    const voice = document.getElementById('set-voice')?.value;
+    try {
+      const data = await api('/api/profile', { method: 'PATCH', body: JSON.stringify({ name, voice }) });
+      state.profile = data.profile; render(); toast('Đã lưu');
+    } catch (error) { toast(error.message); }
+  } else if (action === 'logout') {
+    await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    state.user = null; state.profile = null; state.view = 'login'; state.messages = []; state.chatId = null;
+    state.route = { name: 'login', params: {} };
+    history.replaceState({}, '', '/login');
+    render();
+  } else if (action === 'open-canvas') {
+    openCanvas();
+  } else if (action === 'generate-prep') {
+    try {
+      const data = await api(`/api/preps/${value}/generate`, { method: 'POST' });
+      state.prepPlan = data.plan;
+      await loadPreps();
+      await refreshDashboard();
+      render();
+      toast('Đã sinh kế hoạch ôn thi');
+    } catch (error) { toast(error.message); }
+  } else if (action === 'view-prep') {
+    try {
+      const data = await api(`/api/preps/${value}`);
+      state.prepPlan = data.prep?.plan || null;
+      render();
+    } catch (error) { toast(error.message); }
+  } else if (action === 'close-plan') {
+    state.prepPlan = null;
+    render();
+  } else if (action === 'add-child') {
+    const email = document.getElementById('child-email')?.value.trim();
+    try {
+      const data = await api('/api/parent/children', { method: 'POST', body: JSON.stringify({ email }) });
+      await refreshDashboard();
+      render();
+      toast(data.linked ? 'Đã liên kết tài khoản con' : 'Đã ghi nhận, chờ con đăng ký');
+    } catch (error) { toast(error.message); }
+  } else if (action === 'create-prep') {
+    const title = document.getElementById('prep-title')?.value.trim();
+    const subject = document.getElementById('prep-subject')?.value;
+    const examDate = document.getElementById('prep-date')?.value;
+    try {
+      const created = await api('/api/preps', { method: 'POST', body: JSON.stringify({ title, subject, examDate }) });
+      try {
+        const generated = await api(`/api/preps/${created.id}/generate`, { method: 'POST' });
+        state.prepPlan = generated.plan;
+      } catch {}
+      await loadPreps();
+      await refreshDashboard();
+      render();
+      toast('Đã tạo đề và sinh kế hoạch');
+    } catch (error) { toast(error.message); }
+  } else if (action === 'open-chat') {
+    await openChat({ id: value });
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey && event.target.id === 'chat-input') {
+    event.preventDefault();
+    const input = event.target;
+    const text = input.value;
+    input.value = '';
+    sendMessage(text);
+  }
+});
+
+document.addEventListener('change', async (event) => {
+  if (event.target.id === 'file-input') {
+    await uploadFile(event.target.files?.[0]);
+  }
+});
+
+async function loadPreps() {
+  try {
+    const data = await api('/api/preps');
+    state.preps = data.preps || [];
+  } catch { state.preps = []; }
+}
+
+boot();

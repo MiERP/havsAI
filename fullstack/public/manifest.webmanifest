@@ -1,0 +1,14 @@
+{
+  "id": "https://havs.local/",
+  "name": "havsAI",
+  "short_name": "havsAI",
+  "description": "Gia sư AI 24/7 cho mọi môn học",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d0d0d",
+  "theme_color": "#0d0d0d",
+  "orientation": "portrait",
+  "lang": "vi",
+  "icons": []
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://havs.local/bridge/message.schema.json",
+  "title": "havsAI bridge message",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "id": { "type": "string" },
+    "type": {
+      "enum": [
+        "havs-native-ready",
+        "havs-device-info",
+        "havs-push-state",
+        "havs-push-permission-status",
+        "havs-request-push-permission",
+        "havs-open-push-settings",
+        "havs-set-theme",
+        "havs-track-event",
+        "havs_route",
+        "havs-identify",
+        "app-review"
+      ]
+    },
+    "payload": { "type": "object" },
+    "ok": { "type": "boolean" },
+    "data": { "type": "object" },
+    "error": { "type": "string" }
+  },
+  "additionalProperties": true
+}

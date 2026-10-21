@@ -1,0 +1,3 @@
+-keep class co.astra.ai.rewrite.** { *; }
+-keep class androidx.browser.** { *; }
+-dontwarn org.chromium.**

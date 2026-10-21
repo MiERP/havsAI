@@ -1,0 +1,16 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+.env
+fullstack/data/
+node_modules/
+fullstack/node_modules/
+*.db
+.commandcode/
+*.log
+
+

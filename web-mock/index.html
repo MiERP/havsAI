@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>havsAI — Mock PWA</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; padding: 24px; font-family: system-ui, sans-serif; background: #0d0d0d; color: #f4f4f4; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    p { color: #aaa; margin: 0 0 16px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-width: 520px; }
+    button { padding: 12px; border: 1px solid #333; border-radius: 10px; background: #1a1a1a; color: #f4f4f4; font-size: 14px; }
+    button:active { background: #2a2a2a; }
+    #bridge { font-weight: 600; color: #f5a623; }
+    #bridge.ready { color: #4cd964; }
+    pre { margin-top: 16px; padding: 12px; background: #141414; border-radius: 10px; height: 320px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>havsAI — Mock PWA</h1>
+  <p id="bridge">Bridge: waiting for native…</p>
+  <div class="grid">
+    <button onclick="send('havs-device-info', {})">Device info</button>
+    <button onclick="send('havs-push-state', {})">Push state</button>
+    <button onclick="send('havs-request-push-permission', {})">Request push</button>
+    <button onclick="send('havs-open-push-settings', {})">Push settings</button>
+    <button onclick="send('havs-set-theme', {theme: 'dark'})">Set theme</button>
+    <button onclick="send('havs-track-event', {event: 'mock_click', props: {source: 'web'}})">Track event</button>
+    <button onclick="send('havs-identify', {userId: 'mock-user'})">Identify</button>
+    <button onclick="openDeepLink('havs-identify://set?userId=mock-user')">Identify (deep link)</button>
+    <button onclick="openDeepLink('https://app.havs.ai/onboarding')">App link</button>
+  </div>
+  <pre id="log"></pre>
+  <script>
+    const logEl = document.getElementById('log');
+    const bridgeEl = document.getElementById('bridge');
+    let port = null;
+
+    function log(line) {
+      logEl.textContent += new Date().toISOString().slice(11, 19) + ' ' + line + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    window.addEventListener('message', (event) => {
+      const candidate = event.ports && event.ports[0];
+      if (candidate) {
+        port = candidate;
+        port.onmessage = (messageEvent) => handle(messageEvent.data);
+        bridgeEl.textContent = 'Bridge: ready';
+        bridgeEl.classList.add('ready');
+        log('bridge ready: ' + (event.data || ''));
+        send('havs-device-info', {});
+        send('havs-push-state', {});
+        return;
+      }
+      handle(event.data);
+    });
+
+    function send(type, payload) {
+      if (!port) { log('no bridge port for ' + type); return; }
+      const id = String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+      port.postMessage(JSON.stringify({ id, type, payload }));
+      log('→ ' + type);
+    }
+
+    function handle(raw) {
+      log('← ' + (typeof raw === 'string' ? raw : JSON.stringify(raw)));
+    }
+
+    function openDeepLink(url) {
+      log('open ' + url);
+      window.location.href = url;
+    }
+  </script>
+</body>
+</html>
