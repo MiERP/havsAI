@@ -8,6 +8,18 @@ Một mock PWA nhỏ (`web-mock/`) được giữ để test hợp đồng postM
 - Cam chính `#ea580c`: nút, bubble người dùng, trạng thái active và nét vẽ canvas.
 - Xanh `#00a10d`: "havs" trong logo, chỉ báo live/online.
 - Màn hình chào mừng: nền trắng, wordmark "havs" xanh + "AI" cam.
+- Admin có thể đổi toàn bộ palette dark/light tại `/admin` → Giao diện; server phục vụ qua `/theme.css`.
+
+## Trang quản trị
+
+- Mở trực tiếp `/admin` bằng trình duyệt (không nằm trong nav app).
+- Tài khoản seed lần đầu: `admin` / `admin`; lần đăng nhập đầu bắt buộc đổi mật khẩu trước khi dùng các tab khác.
+- `ADMIN_USERNAME` / `ADMIN_PASSWORD` chỉ dùng để seed khi bảng `admin_accounts` còn trống.
+- Quản lý: tài khoản (disable, soft-delete, restore, logout-all), chat/prep/upload/lab/calendar/attempt/parent link/event, palette màu dark/light, AI provider (chat/vision, test kết nối, default, API key mã hoá) và audit log.
+- User bị disable hoặc xóa mềm bị chặn đăng nhập; xóa user là soft-delete, nội dung xóa cứng có xác nhận.
+- Admin dùng cookie riêng, CSRF token, rate limit đăng nhập; API key không bao giờ trả về plaintext.
+- API key AI được mã hoá bằng `SETTINGS_KEY` hoặc `fullstack/data/settings.key` (0600). Deploy script backup cả DB và key này.
+- Chỉ quản lý màu sắc, không có layout builder/feature flags.
 
 ## Full-stack app (web + backend)
 
@@ -238,7 +250,8 @@ npm test
 
 Bộ test dùng `node:test` và DB tạm qua `HAVS_DATA_DIR`, bao phủ: OTP/cookie,
 quyền tải upload, PDF lỗi và giới hạn trang, tạo đề từ upload, production không
-log OTP khi thiếu mailer, `assetlinks.json`, cùng các bất biến frontend
+log OTP khi thiếu mailer, `assetlinks.json`, admin login/CSRF/theme/AI provider,
+soft-delete user, hard-delete nội dung, audit, cùng các bất biến frontend
 (KaTeX self-host + `trust: false`, iframe Lab `sandbox="allow-scripts"`, host App
 Links/PWA).
 
@@ -273,8 +286,9 @@ sudo APP_DIR=/opt/havs-ai RUN_USER=havsai SERVICE=havsai PORT=3000 \
   bash deploy/deploy.sh
 ```
 
-Script không đụng `fullstack/.env` và `fullstack/data`. Chi tiết biến, backup và
-khôi phục DB: `deploy/README.md`.
+Script backup DB và `fullstack/data/settings.key` (nếu có), không sửa
+`fullstack/.env` hay nội dung data. Chi tiết biến, backup và khôi phục DB:
+`deploy/README.md`.
 
 ## Giới hạn có chủ đích
 

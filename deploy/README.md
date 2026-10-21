@@ -1,8 +1,9 @@
 # Deploy havsAI lên VPS
 
-Script `deploy/deploy.sh` chạy trên VPS: backup SQLite, pull `origin/main`,
-`npm ci --omit=dev`, chạy test, restart systemd/pm2, health-check và kiểm tra
-theme `#ea580c`. Script không đụng `fullstack/.env` và `fullstack/data`.
+Script `deploy/deploy.sh` chạy trên VPS: backup SQLite (và `settings.key` mã hoá
+API key nếu có), pull `origin/main`, `npm ci --omit=dev`, chạy test, restart
+systemd/pm2, health-check và kiểm tra theme `#ea580c`. Script không đụng
+`fullstack/.env` và nội dung `fullstack/data` (chỉ đọc để backup).
 
 ## Một lệnh
 

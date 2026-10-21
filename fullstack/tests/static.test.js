@@ -13,8 +13,12 @@ const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8');
 test('browser and server scripts pass a syntax check', () => {
   for (const file of [
     path.join(root, 'fullstack', 'server.js'),
+    path.join(root, 'fullstack', 'admin.js'),
+    path.join(root, 'fullstack', 'lib', 'ai.js'),
+    path.join(root, 'fullstack', 'lib', 'secrets.js'),
     path.join(publicDir, 'app.js'),
-    path.join(publicDir, 'features.js')
+    path.join(publicDir, 'features.js'),
+    path.join(publicDir, 'admin.js')
   ]) {
     const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
     assert.equal(result.status, 0, `${path.basename(file)}: ${result.stderr}`);
@@ -34,10 +38,22 @@ test('KaTeX is self-hosted and trust is disabled', () => {
   assert.ok(fs.existsSync(path.join(publicDir, 'vendor', 'katex', 'katex.min.css')));
 });
 
+test('admin panel assets and routes are wired', () => {
+  for (const file of ['admin.html', 'admin.js', 'admin.css']) {
+    assert.ok(fs.existsSync(path.join(publicDir, file)), `missing ${file}`);
+  }
+  const server = read(root, 'fullstack', 'server.js');
+  assert.match(server, /admin\.handle\(/);
+  assert.match(server, /p === '\/admin'/);
+  assert.match(read(publicDir, 'index.html'), /href="\/theme\.css"/);
+});
+
 test('brand palette uses havs orange and green', () => {
   const css = read(publicDir, 'styles.css');
   assert.match(css, /--accent:\s*#ea580c/i);
   assert.match(css, /--accent-2:\s*#00a10d/i);
+  assert.match(css, /--on-accent:\s*#081005/i);
+  assert.match(css, /--accent-rgb:\s*234,\s*88,\s*12/i);
   assert.match(css, /\.logo \{[^}]*color:\s*var\(--accent-2\)/);
   assert.match(css, /\.logo span \{[^}]*color:\s*var\(--accent\)/);
   assert.doesNotMatch(css, /#6c5ce7|#8b7cff|#d6a400/i);

@@ -181,6 +181,8 @@ function applyPreferences() {
   const theme = state.profile?.theme || 'dark';
   document.documentElement.dataset.theme = theme;
   document.body.classList.toggle('dyslexia', !!state.settings?.dyslexia || !!state.profile?.settings?.dyslexia);
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  if (accent) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', accent);
 }
 
 function renderFeaturePage(route) {

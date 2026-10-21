@@ -6,6 +6,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { DatabaseSync } = require('node:sqlite');
+const { createSecretStore } = require('./lib/secrets');
+const { createAi } = require('./lib/ai');
+const { createAdmin } = require('./admin');
 
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -39,37 +42,9 @@ if (!fs.existsSync(DB_PATH) && fs.existsSync(LEGACY_DB_PATH)) {
 const PORT = Number(process.env.PORT || 3000);
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const ALLOW_DEV_OTP = !IS_PRODUCTION && process.env.ALLOW_DEV_OTP === 'true';
-const HOME = process.env.USERPROFILE || process.env.HOME || '';
-
-function readJsonFile(file) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
-}
-
-// Command Code is the default model provider. It exposes an OpenAI-compatible
-// /provider/v1/chat/completions endpoint and stores the login in auth.json.
-const commandCodeAuth = readJsonFile(path.join(HOME, '.commandcode', 'auth.json'));
-const commandCodeConfig = readJsonFile(path.join(HOME, '.commandcode', 'config.json'));
-const COMMANDCODE = {
-  apiKey: process.env.COMMANDCODE_API_KEY || commandCodeAuth?.apiKey || '',
-  baseUrl: process.env.COMMANDCODE_BASE_URL || 'https://api.commandcode.ai/provider/v1',
-  model: process.env.COMMANDCODE_MODEL || commandCodeConfig?.model || 'deepseek/deepseek-v4.1-flash'
-};
-const DEEPSEEK = {
-  apiKey: process.env.DEEPSEEK_API_KEY || '',
-  baseUrl: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
-  model: process.env.DEEPSEEK_MODEL || 'deepseek-chat'
-};
-const VISION = {
-  baseUrl: process.env.VISION_BASE_URL || COMMANDCODE.baseUrl,
-  apiKey: process.env.VISION_API_KEY || COMMANDCODE.apiKey,
-  model: process.env.VISION_MODEL || 'deepseek/deepseek-v4-flash-vision-exp',
-  fallbackModel: process.env.VISION_FALLBACK_MODEL || 'deepseek/deepseek-v4-flash-vision-exp',
-  reasoningEffort: process.env.VISION_REASONING_EFFORT || 'off'
-};
 const PDF_MAX_PAGES = Number(process.env.PDF_MAX_PAGES || 50);
 const PDF_VISION_PAGES = Number(process.env.PDF_VISION_PAGES || 3);
 const PDF_VISION_CONCURRENCY = Number(process.env.PDF_VISION_CONCURRENCY || 2);
-const AI_PROVIDER = process.env.AI_PROVIDER || (COMMANDCODE.apiKey ? 'commandcode' : DEEPSEEK.apiKey ? 'deepseek' : 'mock');
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const db = new DatabaseSync(DB_PATH);
@@ -255,14 +230,22 @@ async function readJson(req) {
   try { return JSON.parse(raw.toString('utf8')); } catch { throw new Error('invalid_json'); }
 }
 
+const secrets = createSecretStore(DATA_DIR);
+const ai = createAi({ db, secrets });
+const admin = createAdmin({
+  db, send, readJson, parseCookies, secureCookie, now, uid,
+  dataDir: DATA_DIR, uploadDir: UPLOAD_DIR, ai
+});
+admin.init(secrets);
+
 function currentUser(req) {
   const cookies = parseCookies(req);
   const value = cookies.havs_session || cookies.astra_session;
   if (!value) return null;
   const row = db.prepare('SELECT user_id FROM sessions WHERE token = ?').get(value);
   if (!row) return null;
-  const user = db.prepare('SELECT id, email, created_at FROM users WHERE id = ?').get(row.user_id);
-  if (!user) return null;
+  const user = db.prepare('SELECT id, email, created_at, disabled, deleted_at FROM users WHERE id = ?').get(row.user_id);
+  if (!user || user.disabled || user.deleted_at) return null;
   const profile = db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(user.id);
   return { user, profile };
 }
@@ -376,7 +359,7 @@ function fallbackPlan(prep) {
 }
 
 function currentProviderConfig() {
-  return AI_PROVIDER === 'commandcode' ? COMMANDCODE : AI_PROVIDER === 'deepseek' ? DEEPSEEK : null;
+  return ai.resolve('chat');
 }
 
 function decodeEntities(text) {
@@ -540,20 +523,22 @@ function cacheUploadText(row, text, kind) {
 }
 
 async function visionExtract(base64, mime) {
+  const config = ai.resolve('vision');
+  if (!config?.apiKey) return null;
   const prompt = 'Bạn là bộ OCR cho một gia sư. Hãy: 1) mô tả ngắn gọn ảnh; ' +
     '2) chép lại TOÀN BỘ chữ nhìn thấy, giữ công thức dưới dạng LaTeX; ' +
     '3) đánh dấu [không chắc] ở chỗ mờ hoặc không đọc được. Không giải bài. Trả lời tiếng Việt.';
-  const models = [VISION.model, VISION.fallbackModel].filter(Boolean);
+  const models = [config.model, config.fallbackModel].filter(Boolean);
   for (const model of models) {
     try {
-      const response = await fetch(`${VISION.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+      const response = await fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${VISION.apiKey}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
         body: JSON.stringify({
           model,
           stream: false,
           max_tokens: 1500,
-          ...(VISION.reasoningEffort ? { reasoning_effort: VISION.reasoningEffort } : {}),
+          ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
           messages: [{
             role: 'user',
             content: [
@@ -980,9 +965,21 @@ function childSummary(parentId, childId) {
 function route(req, res) {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const p = url.pathname;
+  if (admin.handle(req, res, p, url)) return;
+  if (p === '/admin' || p === '/admin/') {
+    const file = path.join(PUBLIC_DIR, 'admin.html');
+    if (!fs.existsSync(file)) return send(res, 404, 'not found');
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Frame-Options': 'DENY',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    return fs.createReadStream(file).pipe(res);
+  }
   if (p === '/api/health') {
-    const model = AI_PROVIDER === 'commandcode' ? COMMANDCODE.model : AI_PROVIDER === 'deepseek' ? DEEPSEEK.model : 'mock';
-    return send(res, 200, { ok: true, provider: AI_PROVIDER, model, visionModel: VISION.model });
+    const status = ai.describe();
+    return send(res, 200, { ok: true, provider: status.provider, model: status.model, visionModel: status.visionModel });
   }
   if (p === '/.well-known/assetlinks.json') {
     const fingerprints = String(process.env.ANDROID_SHA256_FINGERPRINTS || '')
@@ -1003,6 +1000,8 @@ function route(req, res) {
     return readJson(req).then(async (body) => {
       const email = String(body.email || '').trim().toLowerCase();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return send(res, 400, { error: 'invalid_email' });
+      const account = db.prepare('SELECT disabled, deleted_at FROM users WHERE email = ?').get(email);
+      if (account && (account.disabled || account.deleted_at)) return send(res, 403, { error: 'account_disabled' });
       const code = ALLOW_DEV_OTP ? '123456' : String(crypto.randomInt(0, 1000000)).padStart(6, '0');
       otpCodes.set(email, { code, expires: now() + 5 * 60 * 1000 });
       const delivery = await deliverOtp(req, email, code);
@@ -1022,6 +1021,7 @@ function route(req, res) {
       if (!valid) return send(res, 401, { error: 'invalid_code' });
       otpCodes.delete(email);
       let user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+      if (user && (user.disabled || user.deleted_at)) return send(res, 403, { error: 'account_disabled' });
       if (!user) {
         user = { id: uid(), email, created_at: now() };
         db.prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)').run(user.id, user.email, user.created_at);
@@ -1055,6 +1055,9 @@ function route(req, res) {
       for (const [from, to] of Object.entries(aliases)) {
         if (input[to] === undefined && input[from] !== undefined) input[to] = input[from];
       }
+      if (input.role !== undefined && !['student', 'parent', 'teacher'].includes(String(input.role))) {
+        return send(res, 400, { error: 'invalid_role' });
+      }
       const allowed = ['role', 'name', 'age', 'country', 'locale', 'subjects', 'voice', 'goal', 'exam_date', 'onboarding_step', 'child_email', 'school', 'class_name'];
       const sets = [];
       const values = [];
@@ -1075,7 +1078,7 @@ function route(req, res) {
     const ctx = requireUser(req, res); if (!ctx) return;
     return readJson(req).then((body) => {
       const sets = []; const values = [];
-      for (const key of ['name', 'role', 'theme', 'voice', 'locale']) {
+      for (const key of ['name', 'theme', 'voice', 'locale']) {
         if (body[key] !== undefined) { sets.push(`${key} = ?`); values.push(body[key]); }
       }
       if (sets.length) { sets.push('updated_at = ?'); values.push(now(), ctx.user.id); db.prepare(`UPDATE profiles SET ${sets.join(', ')} WHERE user_id = ?`).run(...values); }
@@ -1772,7 +1775,7 @@ if (require.main === module) {
     if (IS_PRODUCTION && !process.env.SMTP_URL && !process.env.RESEND_API_KEY) {
       console.warn('WARNING: no OTP mailer configured (SMTP_URL or RESEND_API_KEY); login will be unavailable.');
     }
-    console.log(`havsAI fullstack on http://localhost:${server.address().port} (ai=${AI_PROVIDER})`);
+    console.log(`havsAI fullstack on http://localhost:${server.address().port} (ai=${ai.describe().provider})`);
   });
 }
 

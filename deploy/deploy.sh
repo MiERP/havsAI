@@ -86,6 +86,7 @@ elif [ -d "$APP_DIR/fullstack/data" ]; then
 fi
 
 DB_PATH="${OLD_DATA:-$APP_DIR/fullstack/data}/havs.db"
+KEY_PATH="${OLD_DATA:-$APP_DIR/fullstack/data}/settings.key"
 BACKUP_FILE=""
 
 log "[1/6] Backing up SQLite database"
@@ -104,6 +105,15 @@ if [ -f "$DB_PATH" ]; then
   log "    -> $BACKUP_FILE"
 else
   log "    -> no database yet, skipping"
+fi
+
+if [ -f "$KEY_PATH" ]; then
+  mkdir -p "$BACKUP_DIR"
+  KEY_BACKUP="$BACKUP_DIR/havs-settings-$(date +%F-%H%M%S).key"
+  cp "$KEY_PATH" "$KEY_BACKUP"
+  chmod 600 "$KEY_BACKUP" 2>/dev/null || true
+  ls -1t "$BACKUP_DIR"/havs-settings-*.key 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | xargs -r rm -f || true
+  log "    -> encryption key: $KEY_BACKUP"
 fi
 
 if [ ! -d "$APP_DIR/.git" ]; then
