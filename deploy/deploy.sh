@@ -4,12 +4,22 @@
 # One command on the VPS:
 #   sudo bash /opt/havs-ai/deploy/deploy.sh
 #
+# First run when the VPS only has copied files (no .git):
+#   curl -fsSL https://raw.githubusercontent.com/MiERP/havsAI/main/deploy/deploy.sh \
+#     -o /tmp/havs-deploy.sh && sudo bash /tmp/havs-deploy.sh
+#
 # One command from your machine:
 #   ssh root@103.20.102.229 'bash /opt/havs-ai/deploy/deploy.sh'
 #
+# If APP_DIR has no .git, the script backs up fullstack/.env + fullstack/data,
+# clones REPO_URL to a temp directory, swaps it into APP_DIR, restores the two
+# paths and fixes ownership. The old directory is kept as APP_DIR.old-*.
+#
 # Env overrides:
 #   APP_DIR=/opt/havs-ai
-#   RUN_USER=<owner of APP_DIR>
+#   REPO_URL=https://github.com/MiERP/havsAI.git
+#   BRANCH=main
+#   RUN_USER=<systemd User= or owner of APP_DIR>
 #   SERVICE=<auto-detected havs* systemd unit>
 #   PM2_APP=havsai            fallback when there is no systemd unit
 #   PORT=3000                 Node port for the local health/theme checks
@@ -22,6 +32,7 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/havs-ai}"
+REPO_URL="${REPO_URL:-https://github.com/MiERP/havsAI.git}"
 BRANCH="${BRANCH:-main}"
 PORT="${PORT:-3000}"
 PM2_APP="${PM2_APP:-havsai}"
@@ -37,7 +48,6 @@ fail() { printf '!! %s\n' "$*" >&2; exit 1; }
 command -v git >/dev/null 2>&1 || fail "git is not installed"
 command -v npm >/dev/null 2>&1 || fail "npm is not installed"
 command -v curl >/dev/null 2>&1 || fail "curl is not installed"
-[ -d "$APP_DIR/.git" ] || fail "$APP_DIR is not a git repository (set APP_DIR=/path/to/havs-ai)"
 
 if [ -z "${SERVICE:-}" ]; then
   SERVICE="$(systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Ei 'havs' | head -n1 || true)"
@@ -74,6 +84,44 @@ if [ -f "$DB_PATH" ]; then
   log "    -> $BACKUP_FILE"
 else
   log "    -> no database yet, skipping"
+fi
+
+if [ ! -d "$APP_DIR/.git" ]; then
+  log "[2/6] Bootstrapping git repository (existing app has no .git)"
+  TMP_DIR="${APP_DIR}.new-$$"
+  rm -rf "$TMP_DIR"
+  mkdir -p "$(dirname "$APP_DIR")"
+  git clone --branch "$BRANCH" "$REPO_URL" "$TMP_DIR" || fail "git clone failed; check REPO_URL and GitHub access."
+  SAVED_ENV=""
+  SAVED_DATA=""
+  if [ -d "$APP_DIR" ]; then
+    if [ -n "$(ls -A "$APP_DIR" 2>/dev/null)" ]; then
+      SAVE_DIR="$BACKUP_DIR/pre-git-$(date +%Y%m%d-%H%M%S)"
+      mkdir -p "$SAVE_DIR"
+      if [ -f "$APP_DIR/fullstack/.env" ]; then
+        cp -a "$APP_DIR/fullstack/.env" "$SAVE_DIR/env"
+        SAVED_ENV="$SAVE_DIR/env"
+      fi
+      if [ -d "$APP_DIR/fullstack/data" ]; then
+        cp -a "$APP_DIR/fullstack/data" "$SAVE_DIR/data"
+        SAVED_DATA="$SAVE_DIR/data"
+      fi
+    fi
+    OLD_DIR="${APP_DIR}.old-$(date +%Y%m%d-%H%M%S)"
+    mv "$APP_DIR" "$OLD_DIR"
+    log "    -> old app moved to $OLD_DIR"
+  fi
+  mv "$TMP_DIR" "$APP_DIR"
+  if [ -n "$SAVED_ENV" ]; then
+    mkdir -p "$APP_DIR/fullstack"
+    cp -a "$SAVED_ENV" "$APP_DIR/fullstack/.env"
+  fi
+  if [ -n "$SAVED_DATA" ]; then
+    mkdir -p "$APP_DIR/fullstack"
+    cp -a "$SAVED_DATA" "$APP_DIR/fullstack/data"
+  fi
+  chown -R "$RUN_USER" "$APP_DIR"
+  log "    -> cloned $REPO_URL ($BRANCH)"
 fi
 
 log "[2/6] Pulling origin/$BRANCH"

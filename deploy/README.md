@@ -6,7 +6,7 @@ theme `#ea580c`. Script không đụng `fullstack/.env` và `fullstack/data`.
 
 ## Một lệnh
 
-Trên VPS:
+Trên VPS (sau lần đầu):
 
 ```bash
 sudo bash /opt/havs-ai/deploy/deploy.sh
@@ -18,17 +18,34 @@ Từ máy local (SSH thẳng vào VPS):
 ssh root@103.20.102.229 'bash /opt/havs-ai/deploy/deploy.sh'
 ```
 
-Nếu VPS chưa có script, cập nhật repo một lần rồi chạy:
+## Lần đầu khi VPS chưa có `.git`
+
+Nếu VPS chỉ có file copy (lỗi `fatal: not a git repository`), chạy một lệnh này
+để tải script mới nhất từ GitHub và để script tự bootstrap repo:
 
 ```bash
-ssh root@103.20.102.229 'cd /opt/havs-ai && git pull --ff-only && bash deploy/deploy.sh'
+ssh root@103.20.102.229 \
+  'curl -fsSL https://raw.githubusercontent.com/MiERP/havsAI/main/deploy/deploy.sh -o /tmp/havs-deploy.sh && bash /tmp/havs-deploy.sh'
 ```
 
-Hoặc copy trực tiếp từ máy local:
+Nếu repo private, copy script từ máy local rồi chạy:
 
 ```bash
-scp deploy/deploy.sh root@103.20.102.229:/opt/havs-ai/deploy/deploy.sh
+scp deploy/deploy.sh root@103.20.102.229:/tmp/havs-deploy.sh
+ssh root@103.20.102.229 'bash /tmp/havs-deploy.sh'
 ```
+
+Script sẽ:
+
+1. Backup `fullstack/.env` và `fullstack/data` vào `/var/backups/havs-ai/pre-git-*`
+2. Clone `REPO_URL` vào thư mục tạm
+3. Đổi thư mục app cũ thành `APP_DIR.old-*`
+4. Đưa bản clone vào `APP_DIR`, khôi phục `.env`/data và `chown` cho service user
+5. Pull, `npm ci --omit=dev`, test, restart, health-check
+
+> Yêu cầu: `APP_DIR` phải là thư mục app hiện tại (mặc định `/opt/havs-ai`) và
+> systemd service phải có `WorkingDirectory` trỏ tới `APP_DIR/fullstack`. Nếu
+> đường dẫn khác, đặt `APP_DIR=...` khi chạy.
 
 ## Đường dẫn/service khác mặc định
 
