@@ -52,13 +52,22 @@ function createAi({ db, secrets }) {
     }
   }
 
+  function envKey(row) {
+    if (row.kind === 'vision') {
+      return row.provider === 'commandcode' ? (defaults.vision.apiKey || '') : '';
+    }
+    if (row.provider === 'commandcode') return defaults.commandcode.apiKey || '';
+    if (row.provider === 'deepseek') return defaults.deepseek.apiKey || '';
+    return '';
+  }
+
   function fromRow(row) {
     if (!row || row.provider === 'mock') return null;
     return {
       id: row.id,
       name: row.name,
       provider: row.provider,
-      apiKey: secrets.decrypt(row.api_key_enc) || '',
+      apiKey: secrets.decrypt(row.api_key_enc) || envKey(row),
       baseUrl: row.base_url || '',
       model: row.model || '',
       fallbackModel: row.fallback_model || row.model || '',

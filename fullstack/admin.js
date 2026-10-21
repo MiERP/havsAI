@@ -227,6 +227,65 @@ function createAdmin({ db, send, readJson, parseCookies, secureCookie, now, uid,
     }
   }
 
+  function seedProviders() {
+    const marker = db.prepare("SELECT value FROM app_settings WHERE key = 'ai_seeded'").get();
+    if (marker) return;
+    const count = Number(db.prepare('SELECT COUNT(*) AS c FROM ai_providers').get().c || 0);
+    if (count) {
+      db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES ('ai_seeded', '1', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").run(now());
+      return;
+    }
+    const selected = ai.defaults?.selected;
+    const chat = ai.defaults?.[selected];
+    const vision = ai.defaults?.vision;
+    if ((selected !== 'commandcode' && selected !== 'deepseek') || !chat) return;
+
+    transaction(() => {
+      db.prepare(`
+        INSERT INTO ai_providers (id, name, kind, provider, base_url, api_key_enc, model, fallback_model, reasoning_effort, enabled, is_default, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        uid(),
+        selected === 'commandcode' ? 'Command Code' : 'DeepSeek',
+        'chat',
+        selected,
+        chat.baseUrl || '',
+        null,
+        chat.model || '',
+        '',
+        '',
+        1,
+        1,
+        now(),
+        now()
+      );
+
+      if (vision?.model) {
+        db.prepare(`
+          INSERT INTO ai_providers (id, name, kind, provider, base_url, api_key_enc, model, fallback_model, reasoning_effort, enabled, is_default, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          uid(),
+          'Vision (Command Code)',
+          'vision',
+          'commandcode',
+          vision.baseUrl || '',
+          null,
+          vision.model,
+          vision.fallbackModel || '',
+          vision.reasoningEffort || '',
+          1,
+          1,
+          now(),
+          now()
+        );
+      }
+
+      db.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES ('ai_seeded', '1', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").run(now());
+    });
+    console.log(`Seeded AI providers from ENV (${selected}${vision?.model ? ' + vision' : ''})`);
+  }
+
   /* ------------------------------------------------------------------- theme */
 
   function getPalette() {
@@ -297,7 +356,18 @@ function createAdmin({ db, send, readJson, parseCookies, secureCookie, now, uid,
 
   /* --------------------------------------------------------------------- AI */
 
+  function envKeyFor(row) {
+    if (row.kind === 'vision') {
+      return row.provider === 'commandcode' ? (ai.defaults?.vision?.apiKey || '') : '';
+    }
+    if (row.provider === 'commandcode') return ai.defaults?.commandcode?.apiKey || '';
+    if (row.provider === 'deepseek') return ai.defaults?.deepseek?.apiKey || '';
+    return '';
+  }
+
   function providerView(row) {
+    const dbKey = !!row.api_key_enc;
+    const envKey = envKeyFor(row);
     return {
       id: row.id,
       name: row.name,
@@ -309,8 +379,9 @@ function createAdmin({ db, send, readJson, parseCookies, secureCookie, now, uid,
       reasoningEffort: row.reasoning_effort || '',
       enabled: !!row.enabled,
       isDefault: !!row.is_default,
-      hasKey: !!row.api_key_enc,
-      keyHint: secretsHint(row.api_key_enc),
+      hasKey: dbKey || !!envKey,
+      keyHint: dbKey ? secretsHint(row.api_key_enc) : envKey ? 'ENV' : '',
+      keySource: dbKey ? 'db' : envKey ? 'env' : 'none',
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
@@ -1113,6 +1184,7 @@ function createAdmin({ db, send, readJson, parseCookies, secureCookie, now, uid,
   function init(secrets) {
     secretsProvider = secrets;
     seedAdmin();
+    seedProviders();
   }
 
   return { handle, init, themeCss, getPalette, DEFAULT_PALETTE };
