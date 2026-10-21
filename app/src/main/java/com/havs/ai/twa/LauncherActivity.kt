@@ -4,7 +4,11 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Typeface
 import android.net.Uri
+import android.text.Spannable
+import android.text.SpannableString
+import android.text.style.ForegroundColorSpan
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -21,6 +25,7 @@ import androidx.browser.customtabs.CustomTabsServiceConnection
 import androidx.browser.customtabs.CustomTabsSession
 import androidx.browser.trusted.TrustedWebActivityIntentBuilder
 import com.havs.ai.AppConfig
+import com.havs.ai.R
 import com.havs.ai.bridge.BridgeHub
 import com.havs.ai.bridge.BridgeProtocol
 import com.havs.ai.bridge.NativeBridge
@@ -81,19 +86,23 @@ class LauncherActivity : Activity() {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.rgb(0, 161, 13))
+            setBackgroundColor(Color.WHITE)
             setPadding(48, 48, 48, 48)
         }
+        val wordmark = SpannableString("havsAI").apply {
+            setSpan(ForegroundColorSpan(getColor(R.color.havs_green)), 0, 4, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(ForegroundColorSpan(getColor(R.color.havs_orange)), 4, 6, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
         layout.addView(TextView(this).apply {
-            text = "havsAI"
+            text = wordmark
             textSize = 30f
-            setTextColor(Color.WHITE)
+            setTypeface(Typeface.DEFAULT_BOLD)
             gravity = Gravity.CENTER
         })
         statusView = TextView(this).apply {
             text = "Đang kết nối…"
             textSize = 15f
-            setTextColor(Color.rgb(214, 164, 0))
+            setTextColor(Color.rgb(95, 107, 88))
             gravity = Gravity.CENTER
             setPadding(0, 20, 0, 32)
         }
@@ -101,7 +110,7 @@ class LauncherActivity : Activity() {
         retryButton = Button(this).apply {
             text = "Mở lại havsAI"
             setTextColor(Color.rgb(8, 16, 5))
-            setBackgroundColor(Color.rgb(214, 164, 0))
+            setBackgroundColor(getColor(R.color.havs_orange))
             visibility = View.GONE
             setOnClickListener {
                 retryButton.visibility = View.GONE

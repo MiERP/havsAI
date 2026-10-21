@@ -39,7 +39,7 @@ class HavsMessagingService : FirebaseMessagingService() {
             .setContentText(body)
             .setAutoCancel(true)
             .setContentIntent(pending)
-            .setColor(Color.rgb(0, 161, 13))
+            .setColor(Color.rgb(234, 88, 12))
             .build()
 
         runCatching {

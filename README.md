@@ -5,8 +5,9 @@ Một mock PWA nhỏ (`web-mock/`) được giữ để test hợp đồng postM
 
 ## Màu thương hiệu
 
-- Xanh chính `#00a10d`: nền splash, status/navigation bar, nút chính, bubble người dùng.
-- Vàng nhấn `#d6a400`: logo, badge, trạng thái active, CTA phụ và nét vẽ canvas.
+- Cam chính `#ea580c`: nút, bubble người dùng, trạng thái active và nét vẽ canvas.
+- Xanh `#00a10d`: "havs" trong logo, chỉ báo live/online.
+- Màn hình chào mừng: nền trắng, wordmark "havs" xanh + "AI" cam.
 
 ## Full-stack app (web + backend)
 

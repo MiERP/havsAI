@@ -34,25 +34,27 @@ test('KaTeX is self-hosted and trust is disabled', () => {
   assert.ok(fs.existsSync(path.join(publicDir, 'vendor', 'katex', 'katex.min.css')));
 });
 
-test('brand palette uses havs green and gold', () => {
+test('brand palette uses havs orange and green', () => {
   const css = read(publicDir, 'styles.css');
-  assert.match(css, /--accent:\s*#00a10d/i);
-  assert.match(css, /--accent-2:\s*#d6a400/i);
-  assert.doesNotMatch(css, /#6c5ce7|#8b7cff/i);
-  assert.match(read(publicDir, 'app.js'), /strokeStyle = '#d6a400'/);
+  assert.match(css, /--accent:\s*#ea580c/i);
+  assert.match(css, /--accent-2:\s*#00a10d/i);
+  assert.match(css, /\.logo \{[^}]*color:\s*var\(--accent-2\)/);
+  assert.match(css, /\.logo span \{[^}]*color:\s*var\(--accent\)/);
+  assert.doesNotMatch(css, /#6c5ce7|#8b7cff|#d6a400/i);
+  assert.match(read(publicDir, 'app.js'), /strokeStyle = '#ea580c'/);
   assert.match(read(publicDir, 'index.html'), /theme-color" content="#00a10d"/i);
 
   const webManifest = read(publicDir, 'manifest.webmanifest');
   assert.match(webManifest, /"theme_color":\s*"#00a10d"/i);
-  assert.match(webManifest, /"background_color":\s*"#00a10d"/i);
+  assert.match(webManifest, /"background_color":\s*"#ffffff"/i);
 
   const colors = read(root, 'app', 'src', 'main', 'res', 'values', 'colors.xml');
   assert.match(colors, /havs_green">#00A10D</i);
-  assert.match(colors, /havs_gold">#D6A400</i);
+  assert.match(colors, /havs_orange">#EA580C</i);
 
   const theme = read(root, 'app', 'src', 'main', 'res', 'values', 'themes.xml');
-  assert.match(theme, /@color\/havs_green/);
-  assert.match(theme, /@color\/havs_gold/);
+  assert.match(theme, /@color\/havs_orange/);
+  assert.match(theme, /@android:color\/white/);
 });
 
 test('Lab iframe stays sandboxed without same-origin access', () => {

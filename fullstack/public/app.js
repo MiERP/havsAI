@@ -75,7 +75,7 @@ function render() {
 }
 
 function renderBoot() {
-  return `<div class="screen center pad"><div class="center-text"><div class="logo" style="font-size:28px">havs<span>AI</span></div><p style="margin-top:10px">Đang kết nối…</p></div></div>`;
+  return `<div class="screen center pad splash"><div class="center-text"><div class="logo" style="font-size:28px">havs<span>AI</span></div><p style="margin-top:10px">Đang kết nối…</p></div></div>`;
 }
 
 function renderLogin() {
@@ -467,7 +467,7 @@ function openCanvas() {
   ctx.scale(dpr, dpr);
   ctx.lineWidth = 3;
   ctx.lineCap = 'round';
-  ctx.strokeStyle = '#d6a400';
+  ctx.strokeStyle = '#ea580c';
   let drawing = false;
   const point = (event) => {
     const rect = canvas.getBoundingClientRect();
