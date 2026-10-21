@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -41,11 +42,22 @@ class DeepLinkTest {
 
     @Test
     fun appLinkResolves() {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://app.havs.ai/onboarding"))
+        val target = Uri.parse(AppConfig.webUrl(context)).buildUpon().path("/onboarding").build()
+        val intent = Intent(Intent.ACTION_VIEW, target)
             .setPackage(context.packageName)
         val resolved = context.packageManager.resolveActivity(intent, 0)
         assertNotNull("no activity for app link", resolved)
         assertEquals(context.packageName, resolved!!.activityInfo.packageName)
+    }
+
+    @Test
+    fun retiredAppLinkHostDoesNotResolve() {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://app.havs.ai/onboarding"))
+            .setPackage(context.packageName)
+        assertNull(
+            "retired host should not be registered",
+            context.packageManager.resolveActivity(intent, 0)
+        )
     }
 
     private fun assertResolves(className: String, url: String) {

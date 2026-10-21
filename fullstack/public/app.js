@@ -1,7 +1,14 @@
 const SUBJECTS = [
-  ['math', 'Toán'], ['physics', 'Lý'], ['chemistry', 'Hóa'], ['biology', 'Sinh'],
-  ['english', 'Anh'], ['literature', 'Văn'], ['history', 'Sử'], ['geography', 'Địa'], ['cs', 'Tin']
+  ['math', 'Toán'], ['physics', 'Lý'], ['chemistry', 'Hóa'], ['cs', 'Tin'],
+  ['english', 'Anh'], ['german', 'Đức'], ['spanish', 'Tây Ban Nha'], ['french', 'Pháp'],
+  ['biology', 'Sinh'], ['geography', 'Địa'], ['history', 'Sử'], ['literature', 'Văn'],
+  ['economics', 'Kinh tế']
 ];
+const SUBJECT_META = {
+  math: '🧮', physics: '⚛️', chemistry: '⚗️', biology: '🧬', english: '🇬🇧',
+  german: '🇩🇪', spanish: '🇪🇸', french: '🇫🇷', literature: '📖', history: '🏛️',
+  geography: '🌍', cs: '💻', economics: '📈'
+};
 const VOICE_LABELS = { neil: 'Neil', aria: 'Aria', minh: 'Minh', lena: 'Lena' };
 const PROMPTS = {
   math: ['Giải phương trình bậc 2', 'Tóm tắt công thức lượng giác', 'Luyện đề đạo hàm'],
@@ -17,6 +24,7 @@ const state = {
   route: { name: 'chat', params: {} }, routeError: '',
   chats: [], chatId: null, messages: [], subject: 'math',
   streaming: false, imageUrl: null, uploadId: null, uploadName: '', uploadPages: 0, uploadMime: '', voiceOn: true,
+  listening: false, draft: '', examWizard: null,
   voices: [], preps: [], dashboard: null,
   realtime: null, live: false, prepPlan: null,
   examPreps: [], exam: null, examMode: 'all', examQuery: '', examCatalog: [], examShared: [], curriculum: {}, past: null,
@@ -149,7 +157,7 @@ function renderMain() {
   const fallback = tab === 'chat' ? renderChat() : tab === 'prep' ? renderPrep() : tab === 'stats' ? renderStats() : renderSettings();
   return `<div class="screen main-screen">
     <div class="header"><div class="inner"><div class="logo">havs<span>AI</span></div><span class="badge">BETA</span><span id="live" class="live ${state.live ? 'on' : ''}">${state.live ? '● live' : '○ offline'}</span><div class="grow"></div>
-      <div class="avatar" data-action="go-settings">${esc((p.name || 'H')[0].toUpperCase())}</div></div></div>
+      <div class="avatar" data-action="go-profile">${esc((p.name || 'H')[0].toUpperCase())}</div></div></div>
     <div class="main">${feature || fallback}</div>
     <div class="bottom-nav">
       ${[['chat', 'Trò chuyện', '💬', '/'], ['prep', 'Ôn thi', '📚', '/exam-preps'], ['stats', 'Tiến độ', '📈', '/dashboard'], ['settings', 'Cài đặt', '⚙️', '/settings']].map(([id, label, icon, href]) =>
@@ -180,19 +188,68 @@ function renderChat() {
       <input id="file-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" class="hidden" />
       <button class="icon-btn" data-action="open-canvas" title="Vẽ">✎</button>
       <button class="icon-btn" data-action="pick-file" title="Đính kèm">＋</button>
-      <input id="chat-input" class="input" placeholder="Nhập câu hỏi…" autocomplete="off" />
-      <button class="icon-btn ${state.voiceOn ? 'send' : ''}" data-action="toggle-voice" title="Giọng nói">${state.voiceOn ? '🔊' : '🔇'}</button>
+      <input id="chat-input" class="input" value="${esc(state.draft)}" placeholder="Nhập câu hỏi…" autocomplete="off" />
+      <button class="icon-btn ${state.listening ? 'send' : ''}" data-action="voice-input" title="Nhập bằng giọng nói">${state.listening ? '◉' : '🎤'}</button>
+      <button class="icon-btn ${state.voiceOn ? 'send' : ''}" data-action="toggle-voice" title="Đọc câu trả lời">${state.voiceOn ? '🔊' : '🔇'}</button>
       <button class="icon-btn send" data-action="send" ${state.streaming ? 'disabled' : ''}>➤</button>
     </div>`;
 }
 
+function renderTex(tex, display) {
+  if (!window.katex || !String(tex || '').trim()) return esc(tex || '');
+  try {
+    return window.katex.renderToString(tex.trim(), {
+      displayMode: !!display,
+      throwOnError: false,
+      strict: 'ignore',
+      trust: false
+    });
+  } catch {
+    return esc(tex);
+  }
+}
+
+function looksLikeBareMath(line) {
+  if (!/\\[a-zA-Z]+/.test(line)) return false;
+  const commands = line.match(/\\[a-zA-Z]+/g) || [];
+  if (commands.length >= 2) return true;
+  if (/^\\[a-zA-Z]/.test(line)) return true;
+  return commands.length === 1 && line.length < 80 && /[=+\-^_\\]/.test(line);
+}
+
+function formatTextBlock(raw) {
+  return raw.split('\n').map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return '';
+    if (looksLikeBareMath(trimmed)) return `<div class="math-block">${renderTex(trimmed, true)}</div>`;
+    let value = esc(line);
+    value = value.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    value = value.replace(/^#{1,6}\s+(.+)$/, '<strong>$1</strong>');
+    value = value.replace(/^\s*[-*]\s+(.+)$/, '• $1');
+    return value;
+  }).join('<br>');
+}
+
 function formatMessage(text) {
-  let value = esc(text);
-  value = value.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  value = value.replace(/^### (.+)$/gm, '<strong>$1</strong>');
-  value = value.replace(/^- (.+)$/gm, '• $1');
-  value = value.replace(/\\\[/g, '').replace(/\\\]/g, '').replace(/\\\(/g, '').replace(/\\\)/g, '');
-  return value.replace(/\n/g, '<br>');
+  const source = String(text ?? '');
+  const pattern = /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\.|[^$\\])+?\$)/g;
+  const parts = [];
+  let last = 0;
+  let match;
+  while ((match = pattern.exec(source))) {
+    if (match.index > last) parts.push({ text: source.slice(last, match.index) });
+    const token = match[0];
+    let tex = token;
+    let display = false;
+    if (token.startsWith('$$')) { tex = token.slice(2, -2); display = true; }
+    else if (token.startsWith('\\[')) { tex = token.slice(2, -2); display = true; }
+    else if (token.startsWith('\\(')) { tex = token.slice(2, -2); }
+    else if (token.startsWith('$')) { tex = token.slice(1, -1); }
+    parts.push({ tex, display });
+    last = pattern.lastIndex;
+  }
+  if (last < source.length) parts.push({ text: source.slice(last) });
+  return parts.map((part) => part.tex !== undefined ? renderTex(part.tex, part.display) : formatTextBlock(part.text)).join('');
 }
 
 function messageTools(m) {
@@ -410,7 +467,7 @@ function openCanvas() {
   ctx.scale(dpr, dpr);
   ctx.lineWidth = 3;
   ctx.lineCap = 'round';
-  ctx.strokeStyle = '#8b7cff';
+  ctx.strokeStyle = '#d6a400';
   let drawing = false;
   const point = (event) => {
     const rect = canvas.getBoundingClientRect();
@@ -447,6 +504,7 @@ function openCanvas() {
 
 async function boot() {
   try {
+    try { if (localStorage.getItem('havs-voice') === 'off') state.voiceOn = false; } catch {}
     await loadVoices();
     const session = await api('/api/auth/session');
     state.session = session;
@@ -537,6 +595,7 @@ function scrollChat() {
 async function sendMessage(text) {
   if (state.streaming) return;
   if (!text.trim()) return;
+  state.draft = '';
   state.streaming = true;
   state.error = '';
   state.messages.push({ role: 'user', content: text, image_url: state.uploadMime?.startsWith('image/') ? state.imageUrl : null });
@@ -616,30 +675,116 @@ async function sendMessage(text) {
   }
 }
 
-function speak(text) {
-  if (!('speechSynthesis' in window)) return;
+let speechUnlocked = false;
+let recognition = null;
+
+function unlockSpeech() {
+  if (speechUnlocked || !('speechSynthesis' in window)) return;
+  speechUnlocked = true;
+  try {
+    const warm = new SpeechSynthesisUtterance(' ');
+    warm.volume = 0;
+    warm.lang = 'vi-VN';
+    window.speechSynthesis.speak(warm);
+  } catch {}
+}
+document.addEventListener('pointerdown', unlockSpeech, { once: true });
+
+function pickVoice() {
+  if (!('speechSynthesis' in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  const vi = voices.filter((v) => /^vi/i.test(v.lang || ''));
+  const pref = state.profile?.voice;
+  const female = pref === 'aria' || pref === 'lena';
+  const byName = vi.find((v) => (female ? /female|nữ|linh|mai|lan/i : /male|nam|minh|an/i).test(v.name || ''));
+  return byName || vi[0] || voices.find((v) => v.default) || voices[0] || null;
+}
+
+function cleanForSpeech(text) {
+  return String(text || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/\$\$[\s\S]*?\$\$/g, ' ')
+    .replace(/\\\[[\s\S]*?\\\]/g, ' ')
+    .replace(/\\\([\s\S]*?\\\)/g, ' ')
+    .replace(/\$[^$]*\$/g, ' ')
+    .replace(/\\[a-zA-Z]+/g, ' ')
+    .replace(/[*_#>`~|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function speakNow(text) {
   try {
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text.slice(0, 1200));
-    utterance.lang = state.profile?.locale || 'vi-VN';
-    utterance.rate = 1;
+    const utterance = new SpeechSynthesisUtterance(text.slice(0, 2400));
+    const voice = pickVoice();
+    if (voice) utterance.voice = voice;
+    utterance.lang = voice?.lang || 'vi-VN';
+    utterance.rate = 0.98;
+    utterance.pitch = 1;
+    utterance.onerror = (event) => {
+      if (event.error && !['interrupted', 'canceled'].includes(event.error)) toast(`Không đọc được: ${event.error}`);
+    };
     window.speechSynthesis.speak(utterance);
-  } catch {}
+  } catch {
+    toast('Thiết bị không đọc được văn bản');
+  }
+}
+
+function speak(text) {
+  if (!('speechSynthesis' in window)) { toast('Thiết bị không hỗ trợ đọc văn bản'); return; }
+  const clean = cleanForSpeech(text);
+  if (!clean) return;
+  unlockSpeech();
+  if (window.speechSynthesis.getVoices().length) return speakNow(clean);
+  let done = false;
+  const handler = () => {
+    if (done) return;
+    done = true;
+    window.speechSynthesis.onvoiceschanged = null;
+    speakNow(clean);
+  };
+  window.speechSynthesis.onvoiceschanged = handler;
+  setTimeout(() => { if (!done) handler(); }, 900);
+}
+
+function startVoiceInput() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) { toast('Thiết bị không hỗ trợ nhập giọng nói'); return; }
+  if (state.listening) { try { recognition?.stop(); } catch {} return; }
+  try {
+    recognition = new Recognition();
+    recognition.lang = 'vi-VN';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event) => {
+      const text = event.results?.[0]?.[0]?.transcript || '';
+      if (!text) return;
+      state.draft = (state.draft ? state.draft + ' ' : '') + text;
+      const input = document.getElementById('chat-input');
+      if (input) { input.value = state.draft; input.focus(); }
+      toast('Đã nhận giọng nói');
+    };
+    recognition.onerror = (event) => {
+      toast(event.error === 'not-allowed' ? 'Cần quyền micro trong Chrome' : `Không nghe được: ${event.error}`);
+    };
+    recognition.onend = () => { state.listening = false; render(); };
+    state.listening = true;
+    render();
+    recognition.start();
+    toast('Đang nghe… nói câu hỏi của bạn');
+  } catch (error) {
+    state.listening = false;
+    render();
+    toast(`Không mở được micro: ${error.message}`);
+  }
 }
 
 async function previewVoice(id) {
   if (id === 'none') return;
   if (!('speechSynthesis' in window)) { toast('Thiết bị không hỗ trợ TTS'); return; }
-  const phrase = 'Xin chào, mình là havsAI. Cùng học bài hôm nay nhé.';
-  try {
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(phrase);
-    utterance.lang = 'vi-VN';
-    const voices = window.speechSynthesis.getVoices();
-    const match = voices.find((v) => v.lang?.toLowerCase().startsWith('vi')) || voices[0];
-    if (match) utterance.voice = match;
-    window.speechSynthesis.speak(utterance);
-  } catch {}
+  unlockSpeech();
+  speak('Xin chào, mình là havsAI. Cùng học bài hôm nay nhé.');
 }
 
 async function resizeImage(file, maxEdge = 1568, quality = 0.82) {
@@ -667,7 +812,7 @@ async function resizeImage(file, maxEdge = 1568, quality = 0.82) {
   }
 }
 
-async function uploadFile(file) {
+async function uploadFile(file, target = 'chat') {
   if (!file) return;
   if (file.size > 8 * 1024 * 1024) { toast('Tệp tối đa 8MB'); return; }
   const prepared = await resizeImage(file);
@@ -688,11 +833,17 @@ async function uploadFile(file) {
       method: 'POST',
       body: JSON.stringify({ filename: prepared.name, mime: prepared.type, dataBase64: base64 })
     });
-    state.uploadId = data.id;
-    state.imageUrl = data.url;
-    state.uploadName = prepared.name;
-    state.uploadPages = data.pageCount || 0;
-    state.uploadMime = data.mime || prepared.type;
+    if (target === 'wizard' && state.examWizard) {
+      state.examWizard.uploadId = data.id;
+      state.examWizard.uploadName = prepared.name;
+      state.examWizard.uploadPages = data.pageCount || 0;
+    } else {
+      state.uploadId = data.id;
+      state.imageUrl = data.url;
+      state.uploadName = prepared.name;
+      state.uploadPages = data.pageCount || 0;
+      state.uploadMime = data.mime || prepared.type;
+    }
     render();
     toast(data.pageCount ? `Đã đính kèm PDF (${data.pageCount} trang)` : 'Đã đính kèm tệp');
   } catch (error) {
@@ -795,12 +946,70 @@ document.addEventListener('click', async (event) => {
     navigate(value === 'chat' ? '/' : value === 'prep' ? '/exam-preps' : value === 'stats' ? '/dashboard' : '/settings');
   } else if (action === 'go-settings') {
     navigate('/settings');
+  } else if (action === 'go-profile') {
+    navigate('/profile');
+  } else if (action === 'upgrade') {
+    toast('Thanh toán đã tắt trong bản này');
+  } else if (action === 'invite') {
+    const link = `${location.origin}/?ref=${encodeURIComponent(state.user?.id || '')}`;
+    try {
+      if (navigator.share) await navigator.share({ title: 'havsAI', text: 'Cùng học với havsAI nhé!', url: link });
+      else { await navigator.clipboard.writeText(link); toast('Đã sao chép link mời bạn'); }
+    } catch {}
   } else if (action === 'subject-tab') {
     state.subject = value; state.chatId = null; state.messages = []; render();
   } else if (action === 'prompt') {
     sendMessage(value);
   } else if (action === 'toggle-voice') {
-    state.voiceOn = !state.voiceOn; render();
+    state.voiceOn = !state.voiceOn;
+    try { localStorage.setItem('havs-voice', state.voiceOn ? 'on' : 'off'); } catch {}
+    render();
+    if (state.voiceOn) speak('Đã bật giọng nói.');
+  } else if (action === 'voice-input') {
+    startVoiceInput();
+  } else if (action === 'open-exam-wizard') {
+    openExamWizard(value);
+  } else if (action === 'close-wizard') {
+    state.examWizard = null; render();
+  } else if (action === 'wizard-source') {
+    if (state.examWizard) { state.examWizard.source = value; render(); }
+  } else if (action === 'wizard-subject') {
+    if (state.examWizard) { state.examWizard.subject = value; render(); }
+  } else if (action === 'wizard-add-subject') {
+    const name = window.prompt('Tên môn học của bạn');
+    if (name && state.examWizard) {
+      const id = `custom-${name.trim().toLowerCase().replace(/\s+/g, '-')}`;
+      if (!SUBJECTS.some(([key]) => key === id)) SUBJECTS.push([id, name.trim()]);
+      state.examWizard.subject = id;
+      render();
+    }
+  } else if (action === 'wizard-date' || action === 'wizard-date-next') {
+    if (state.examWizard) {
+      state.examWizard.examDate = value;
+      if (action === 'wizard-date-next') state.examWizard.step = 3;
+      render();
+    }
+  } else if (action === 'wizard-pick-date') {
+    const input = document.getElementById('wizard-date-custom');
+    if (input) { if (input.showPicker) input.showPicker(); else input.click(); }
+  } else if (action === 'wizard-remove-upload') {
+    if (state.examWizard) { state.examWizard.uploadId = null; state.examWizard.uploadName = ''; state.examWizard.uploadPages = 0; render(); }
+  } else if (action === 'exam-how') {
+    toast('Chọn nguồn tài liệu, môn và ngày thi. havsAI sẽ lập kế hoạch 5 ngày kèm bài luyện.');
+  } else if (action === 'wizard-next') {
+    if (state.examWizard) {
+      state.examWizard.step = Math.min(3, state.examWizard.step + 1);
+      render();
+    }
+  } else if (action === 'wizard-back') {
+    if (state.examWizard) {
+      state.examWizard.step = Math.max(0, state.examWizard.step - 1);
+      render();
+    }
+  } else if (action === 'wizard-upload') {
+    document.getElementById(value === 'camera' ? 'wizard-camera' : value === 'gallery' ? 'wizard-gallery' : 'wizard-file')?.click();
+  } else if (action === 'wizard-create') {
+    await createExamFromWizard();
   } else if (action === 'pick-file') {
     document.getElementById('file-input')?.click();
   } else if (action === 'send') {
@@ -882,6 +1091,24 @@ document.addEventListener('keydown', (event) => {
 document.addEventListener('change', async (event) => {
   if (event.target.id === 'file-input') {
     await uploadFile(event.target.files?.[0]);
+  } else if (event.target.id === 'wizard-date-custom') {
+    if (state.examWizard && event.target.value) {
+      state.examWizard.examDate = event.target.value;
+      state.examWizard.step = 3;
+      render();
+    }
+  } else if (event.target.id && event.target.id.startsWith('wizard-')) {
+    await uploadFile(event.target.files?.[0], 'wizard');
+  }
+});
+
+document.addEventListener('input', (event) => {
+  if (event.target.id === 'chat-input') state.draft = event.target.value;
+  if (event.target.id === 'wizard-subject-search') {
+    const query = event.target.value.trim().toLowerCase();
+    document.querySelectorAll('[data-subject-tile]').forEach((el) => {
+      el.classList.toggle('hidden', !!query && !el.dataset.subjectTile.toLowerCase().includes(query));
+    });
   }
 });
 

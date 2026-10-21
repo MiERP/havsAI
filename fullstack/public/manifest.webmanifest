@@ -1,13 +1,13 @@
 {
-  "id": "https://havs.local/",
+  "id": "https://103-20-102-229.sslip.io/",
   "name": "havsAI",
   "short_name": "havsAI",
   "description": "Gia sư AI 24/7 cho mọi môn học",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0d0d0d",
-  "theme_color": "#0d0d0d",
+  "background_color": "#00a10d",
+  "theme_color": "#00a10d",
   "orientation": "portrait",
   "lang": "vi",
   "icons": []

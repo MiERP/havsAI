@@ -24,6 +24,7 @@ function parseRoute() {
     return { name: 'dashboard', params: {} };
   }
   if (a === 'settings') return { name: 'settings', params: {} };
+  if (a === 'profile') return { name: 'profile', params: {} };
   if (a === 'exam-preps') {
     if (!b) return { name: 'exam-list', params: { mode: 'all' } };
     if (['official', 'school', 'curriculum', 'search', 'past'].includes(b)) {
@@ -201,6 +202,7 @@ function renderFeaturePage(route) {
     case 'share': return renderShare();
     case 'dashboard': return renderHavsStats();
     case 'settings': return renderHavsSettings();
+    case 'profile': return renderProfilePage();
     case 'payments': return renderPaymentsDisabled();
     case 'legal': return renderLegal();
     default: return null;
@@ -241,22 +243,36 @@ function renderExamList() {
       <div class="row" style="margin-top:10px"><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}">Mở</button>${prep.status !== 'ready' ? `<button class="btn" data-action="exam-generate" data-value="${prep.id}">Sinh kế hoạch</button>` : ''}</div></div>`).join('') || '<div class="item"><p>Chưa có đề ôn tập nào.</p></div>'}</div>
       ${catalog.length ? `<div class="card" style="margin-top:14px"><h2>Đề mẫu</h2>${catalog.map((item) => `<div class="item" style="margin-bottom:8px"><h3>${esc(item.title)}</h3><p>${esc(item.region || '')}</p><button class="btn secondary" data-action="exam-catalog-create" data-value="${item.id}">Tạo đề</button></div>`).join('')}</div>` : ''}`;
   }
-  return `<div class="pad">
-    <h1>Ôn thi</h1><p>Kế hoạch, bài học, thử thách, đề thi thử và chia sẻ.</p>
+  return `<div class="pad exam-home">
+    <div class="row exam-title-row">
+      <h1>Kỳ thi</h1><div class="grow"></div>
+      <button class="icon-btn" data-action="nav" data-value="/exam-preps/search" title="Tìm kiếm">🔍</button>
+      <button class="icon-btn send" data-action="open-exam-wizard" title="Tạo bài thi mới">＋</button>
+    </div>
+    <div class="hero-card">
+      <div class="hero-icon">🎯</div>
+      <h2>Chuẩn bị cho kỳ thi tới của bạn</h2>
+      <p>Thêm ghi chép của bạn hoặc chọn một kỳ thi chính thức, havsAI sẽ lập kế hoạch học tập đến ngày thi.</p>
+      <button class="btn" data-action="open-exam-wizard">＋ Tạo bài thi mới</button>
+      <button class="btn ghost exam-how" data-action="exam-how">Cách thức hoạt động ⓘ</button>
+    </div>
+    <p class="section-label">Bắt đầu từ</p>
+    <div class="start-grid">
+      <button class="start-card" data-action="open-exam-wizard" data-value="files">
+        <span class="start-icon">📤</span><b>Tệp của bạn</b><small>TẢI LÊN GHI CHÉP, HÌNH ẢNH HOẶC SÁCH GIÁO KHOA</small>
+      </button>
+      <button class="start-card" data-action="open-exam-wizard" data-value="school">
+        <span class="start-icon">🏫</span><b>Trường của tôi</b><small>${esc((state.profile?.school || 'HAF LAAM') + ' · ' + (state.examPreps?.length || 0) + ' BỘ ÔN THI')}</small>
+      </button>
+    </div>
     ${tabs}
     ${body}
-    <div class="card" style="margin-top:14px">
-      <h2>Tạo đề mới</h2>
-      <div class="field"><label>Tên đề</label><input id="prep-title" class="input" placeholder="Đề giữa kỳ Toán" /></div>
-      <div class="field"><label>Môn</label><select id="prep-subject" class="input">${SUBJECTS.map(([id, label]) => `<option value="${id}">${label}</option>`).join('')}</select></div>
-      <div class="field"><label>Ngày thi</label><input id="prep-date" class="input" type="date" /></div>
-      <button class="btn" data-action="exam-create">Tạo đề & sinh kế hoạch</button>
-    </div>
     <div class="row" style="margin-top:14px">
       <button class="btn ghost" data-action="nav" data-value="/lab">Lab</button>
       <button class="btn ghost" data-action="nav" data-value="/calendar">Lịch</button>
       <button class="btn ghost" data-action="nav" data-value="/showcase">Khám phá</button>
     </div>
+    ${renderExamWizard()}
   </div>`;
 }
 
@@ -652,3 +668,193 @@ window.addEventListener('popstate', () => {
     loadRouteData().then(() => render()).catch((error) => { state.routeError = error.message; render(); });
   }
 });
+
+const EXAM_SOURCES = [
+  ['files', '📤', 'Tệp của bạn', 'TẢI LÊN GHI CHÉP, HÌNH ẢNH HOẶC SÁCH GIÁO KHOA'],
+  ['school', '🏫', 'Trường của tôi', 'BỘ ĐỀ VÀ TÀI LIỆU CỦA TRƯỜNG'],
+  ['curriculum', '📘', 'Chương trình học', 'TOÁN HỌC · TIỂU HỌC (LỚP 1-5), LỚP...'],
+  ['official', '🇻🇳', 'Kỳ thi chính thức', 'ĐỀ THI CHÍNH THỨC']
+];
+
+function examDateISO(offset) {
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function examDatePretty(value) {
+  if (!value) return '';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'numeric' });
+}
+
+function openExamWizard(source) {
+  state.examWizard = {
+    step: source ? 1 : 0,
+    source: source || 'files',
+    subject: state.subject || 'math',
+    examDate: '',
+    uploadId: null,
+    uploadName: '',
+    uploadPages: 0
+  };
+  render();
+}
+
+function renderExamWizard() {
+  const wizard = state.examWizard;
+  if (!wizard) return '';
+
+  if (wizard.step === 0) {
+    return `<div class="wizard-backdrop">
+      <div class="wizard-hit" data-action="close-wizard"></div>
+      <div class="modal wizard-sheet">
+        <div class="wizard-sheet-head">
+          <button class="icon-btn" data-action="close-wizard">✕</button>
+          <b>Bài mới</b>
+          <span class="icon-btn invisible">✕</span>
+        </div>
+        <div class="source-list">
+          ${EXAM_SOURCES.map(([id, icon, title, subtitle]) => `<button class="source-option ${wizard.source === id ? 'active' : ''}" data-action="wizard-source" data-value="${id}">
+            <span class="source-icon">${icon}</span>
+            <span class="grow" style="text-align:left"><b>${title}</b><small>${subtitle}</small></span>
+            ${wizard.source === id ? '<span class="source-check">✓</span>' : ''}
+          </button>`).join('')}
+        </div>
+        <button class="btn" data-action="wizard-next">Tiếp tục</button>
+      </div>
+    </div>`;
+  }
+
+  const progress = wizard.step === 1 ? 33 : wizard.step === 2 ? 66 : 100;
+  const bar = `<div class="wizard-bar">
+    <button class="icon-btn" data-action="${wizard.step === 1 ? 'close-wizard' : 'wizard-back'}">←</button>
+    <div class="wizard-progress"><span style="width:${progress}%"></span></div>
+    <button class="icon-btn" data-action="close-wizard">✕</button>
+  </div>`;
+
+  if (wizard.step === 1) {
+    return `<div class="wizard-overlay">
+      ${bar}
+      <h1 class="center-text wizard-title">Bạn thi môn gì?</h1>
+      <div class="field"><input id="wizard-subject-search" class="input" placeholder="Nhập môn học của bạn" autocomplete="off" /></div>
+      <div class="center-text" style="margin-bottom:18px"><button class="btn secondary" style="width:auto" data-action="wizard-add-subject">＋ Thêm môn học của bạn</button></div>
+      <p class="section-label">MÔN HỌC TỔNG QUÁT</p>
+      <div class="subject-grid">
+        ${SUBJECTS.map(([id, label]) => `<button class="subject-tile ${wizard.subject === id ? 'active' : ''}" data-action="wizard-subject" data-value="${id}" data-subject-tile="${esc(label)}">
+          <span>${SUBJECT_META[id] || '📘'}</span><b>${esc(label)}</b>
+        </button>`).join('')}
+      </div>
+      <button class="btn wizard-cta" data-action="wizard-next">Tiếp tục</button>
+    </div>`;
+  }
+
+  if (wizard.step === 2) {
+    const options = [
+      ['Ngày mai', 1],
+      ['Trong 2 ngày nữa', 2],
+      ['Trong 3 ngày nữa', 3],
+      ['Vài ngày tới', 10]
+    ];
+    return `<div class="wizard-overlay">
+      ${bar}
+      <h1 class="center-text wizard-title">Khi nào bạn có bài kiểm tra?</h1>
+      <div class="date-list">
+        ${options.map(([label, offset]) => {
+          const value = examDateISO(offset);
+          const date = new Date(`${value}T00:00:00`);
+          return `<button class="date-option ${wizard.examDate === value ? 'active' : ''}" data-action="wizard-date-next" data-value="${value}">
+            <span class="grow"><b>${label}</b><small>${examDatePretty(value)}</small></span>
+            <span class="date-chip"><b>${date.getDate()}</b><small>THG ${date.getMonth() + 1}</small></span>
+          </button>`;
+        }).join('')}
+      </div>
+      <div class="or-sep"><span>HOẶC</span></div>
+      <input id="wizard-date-custom" type="date" class="input hidden" value="${wizard.examDate || ''}" />
+      <div class="center-text"><button class="btn secondary" style="width:auto" data-action="wizard-pick-date">📅 Chọn ngày</button></div>
+      ${wizard.examDate ? `<p class="center-text small" style="margin-top:14px">Đã chọn: ${esc(examDatePretty(wizard.examDate))}</p>
+        <button class="btn" data-action="wizard-next">Tiếp tục</button>` : ''}
+    </div>`;
+  }
+
+  return `<div class="wizard-overlay">
+    ${bar}
+    <h1 class="center-text wizard-title">Tải tài liệu học lên</h1>
+    <p class="center-text">Chỉ nội dung môn ${esc(subjectName(wizard.subject))}</p>
+    <div class="upload-hero">
+      <div class="upload-phone">📱</div>
+      <b>Chụp ảnh</b>
+      <p>Từ ghi chép, sách giáo khoa và đề thi cũ của bạn.</p>
+      <button class="btn" style="width:auto" data-action="wizard-upload" data-value="camera">Mở máy ảnh</button>
+    </div>
+    <p class="section-label center-text">Lựa chọn khác</p>
+    <div class="row" style="justify-content:center">
+      <button class="btn secondary" data-action="wizard-upload" data-value="gallery">🖼 Thư viện ảnh</button>
+      <button class="btn secondary" data-action="wizard-upload" data-value="file">📁 Chọn tệp</button>
+    </div>
+    <input id="wizard-camera" type="file" accept="image/*" capture="environment" class="hidden" />
+    <input id="wizard-gallery" type="file" accept="image/*" class="hidden" />
+    <input id="wizard-file" type="file" accept="image/*,application/pdf" class="hidden" />
+    ${wizard.uploadName ? `<div class="item attach-preview"><span>📄</span><div class="grow"><b>${esc(wizard.uploadName)}</b><small>${wizard.uploadPages ? `${wizard.uploadPages} trang` : 'Đã tải lên'}</small></div><button class="btn ghost" data-action="wizard-remove-upload">Bỏ</button></div>` : ''}
+    <div class="info-box"><span>ⓘ</span><p><b>Vì sao tài liệu của bạn quan trọng</b><br>Bạn càng thêm nhiều tài liệu, havsAI càng hiểu rõ hơn. havsAI xác định các chủ đề, lập kế hoạch và tạo bài luyện sát với bài kiểm tra của bạn.</p></div>
+    <button class="btn ghost" data-action="wizard-create">Tiếp tục không có tài liệu</button>
+    <button class="btn" data-action="wizard-create">Tiếp tục${wizard.uploadId ? ' với tài liệu' : ''}</button>
+  </div>`;
+}
+
+async function createExamFromWizard() {
+  const wizard = state.examWizard;
+  if (!wizard) return;
+  const title = `${subjectName(wizard.subject)}${wizard.examDate ? ` · ${wizard.examDate}` : ''}`;
+  try {
+    const created = await api('/api/preps', {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        subject: wizard.subject,
+        examDate: wizard.examDate,
+        uploadId: wizard.uploadId || null,
+        source: wizard.source
+      })
+    });
+    try { await api(`/api/preps/${created.id}/generate`, { method: 'POST' }); } catch {}
+    state.examWizard = null;
+    toast('Đã tạo kỳ thi và sinh kế hoạch');
+    navigate(`/exam-preps/${created.id}`);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function renderProfilePage() {
+  const profile = state.profile || {};
+  const name = profile.name || 'Học sinh';
+  const meta = [profile.age ? String(profile.age) : '', profile.country || 'Việt Nam'].filter(Boolean).join(' · ');
+  const week = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN'];
+  const today = (new Date().getDay() + 6) % 7;
+  return `<div class="pad profile-page">
+    <div class="profile-head">
+      <div class="profile-avatar">${esc(name[0].toUpperCase())}</div>
+      <h1>${esc(name)}</h1>
+      <p>${esc(meta)}</p>
+      <button class="btn secondary profile-settings" data-action="nav" data-value="/settings">⚙ Cài đặt</button>
+    </div>
+    <div class="card plan-card">
+      <div class="row">
+        <div class="grow"><b>${profile.plan === 'free' || !profile.plan ? 'Cơ bản' : esc(profile.plan)}</b><p style="margin:0">Gói miễn phí</p></div>
+        <button class="btn plan-cta" data-action="upgrade">Học nhanh hơn ✨</button>
+      </div>
+    </div>
+    <button class="card invite-card" data-action="invite">
+      <span class="coin">🪙</span>
+      <span class="grow" style="text-align:left"><b>Mời bạn & nhận thêm lượt dùng</b><p>Nhận đến 400x lượt dùng khi bạn mời bạn bè.</p></span>
+      <span class="chev">›</span>
+    </button>
+    <div class="card streak-card">
+      <div class="row"><span class="flame">🔥</span><div class="grow"><b>Bạn chưa có streak nào</b><p>Hãy bắt đầu ngay hôm nay và tạo streak đầu tiên của bạn!</p></div></div>
+      <div class="streak-week">${week.map((label, index) => `<div class="streak-day ${index === today ? 'today' : ''}"><span>${label}</span><i>🔥</i></div>`).join('')}</div>
+    </div>
+    <p class="small center-text muted" style="margin-top:16px">${esc(state.user?.email || '')}</p>
+  </div>`;
+}

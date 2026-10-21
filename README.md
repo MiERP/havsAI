@@ -3,6 +3,11 @@
 havsAI gồm vỏ Android TWA, web app và backend thật; không có thanh toán.
 Một mock PWA nhỏ (`web-mock/`) được giữ để test hợp đồng postMessage.
 
+## Màu thương hiệu
+
+- Xanh chính `#00a10d`: nền splash, status/navigation bar, nút chính, bubble người dùng.
+- Vàng nhấn `#d6a400`: logo, badge, trạng thái active, CTA phụ và nét vẽ canvas.
+
 ## Full-stack app (web + backend)
 
 Bản full-stack nằm trong `fullstack/`:
@@ -181,29 +186,67 @@ Deep link thủ công:
 adb shell am start -a android.intent.action.VIEW -d "havs-identify://set?userId=demo"
 adb shell am start -a android.intent.action.VIEW -d "havs-push://permission"
 adb shell am start -a android.intent.action.VIEW -d "app-review://launch"
-adb shell am start -a com.havs.ai.OPEN_PUSH --es url "http://localhost:3000/"
 ```
+
+Push-open là activity nội bộ (`exported="false"`), không nhận intent từ app khác;
+kiểm thử bằng `:app:connectedDebugAndroidTest`.
 
 ## TWA / asset links
 
 TWA chỉ chạy full-screen khi URL là HTTPS và `/.well-known/assetlinks.json` của
-origin chứa đúng package + SHA-256 của chứng chỉ ký. Với debug build:
+origin chứa đúng package + SHA-256 của chứng chỉ ký. Server tự sinh file này từ
+biến môi trường (xem `fullstack/.env.example`):
+
+```ini
+ANDROID_SHA256_FINGERPRINTS=AA:BB:CC:...
+ANDROID_PACKAGE_NAME=com.havs.ai
+```
+
+Lấy fingerprint bằng:
 
 ```bash
 keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey \
   -storepass android -keypass android
 ```
 
-Cập nhật fingerprint vào `web-mock/.well-known/assetlinks.json`. Với dev qua
+Không cấu hình fingerprint thì route trả 503 thay vì phát hành file rỗng/sai.
+`web-mock/.well-known/assetlinks.json` chỉ chứa fingerprint debug để thử local;
+không dùng file đó cho bản phát hành.
+Host App Links lấy từ `manifestPlaceholders["appLinkHost"]` trong
+`app/build.gradle.kts`, dùng chung giá trị với `DEFAULT_WEB_URL`. Với dev qua
 `http://localhost`, app tự fallback sang Custom Tabs (có thanh địa chỉ) nhưng
 bridge postMessage vẫn hoạt động nếu Chrome chấp nhận origin.
+
+## OTP email
+
+- **Dev/local:** OTP được in ra console khi request tới `localhost`/`127.0.0.1`.
+  Đặt `ALLOW_DEV_OTP=true` để dùng mã cố định `123456`; cờ này bị bỏ qua khi
+  `NODE_ENV=production`.
+- **Production:** cấu hình `RESEND_API_KEY` + `OTP_FROM_EMAIL` (Resend HTTP API,
+  không cần thêm dependency) hoặc `SMTP_URL` + `OTP_FROM_EMAIL` (cần
+  `cd fullstack && npm install nodemailer`). Thiếu mailer thì
+  `/api/auth/request-code` trả 503 `email_not_configured` và OTP không bị ghi log,
+  kể cả khi quên đặt `NODE_ENV=production` nhưng host không phải localhost.
+
+## Kiểm thử tự động
+
+```bash
+cd fullstack
+npm test
+```
+
+Bộ test dùng `node:test` và DB tạm qua `HAVS_DATA_DIR`, bao phủ: OTP/cookie,
+quyền tải upload, PDF lỗi và giới hạn trang, tạo đề từ upload, production không
+log OTP khi thiếu mailer, `assetlinks.json`, cùng các bất biến frontend
+(KaTeX self-host + `trust: false`, iframe Lab `sandbox="allow-scripts"`, host App
+Links/PWA).
 
 ## Giới hạn có chủ đích
 
 - Không tái tạo PairIP, Facebook SDK, Singular SDK.
 - FCM cần `google-services.json` của project Firebase của bạn; bản mặc định
-  không kèm file này nên không nhận push thật. Luồng xử lý push được test bằng
-  intent `OPEN_PUSH`.
+  không kèm file này nên không nhận push thật. `PushOpenActivity` là activity nội
+  bộ và được kiểm thử bằng `PushOpenActivityTest` + `PushRoutePolicyTest`.
 - Thanh toán đã bị bỏ: không có Play Billing/Stripe, không có gói Plus; route `/pay` chỉ báo đã tắt.
 - Google/Apple OAuth chưa bật vì cần client ID/secret và redirect URI của bạn; hiện dùng email OTP.
 - DelegationService là stub; notification delegation đầy đủ cần implement
@@ -221,7 +264,8 @@ bridge postMessage vẫn hoạt động nếu Chrome chấp nhận origin.
 - Thanh toán đã bỏ hoàn toàn: không còn nút/màn hình nâng cấp, endpoint subscription trả 404, `NativeBillingActivity` không tồn tại.
 - Viewport mobile đã cố định (không còn auto-zoom 1.11x khi focus input).
 - `POST_NOTIFICATIONS`: hiển thị dialog hệ thống, cấp quyền thành công, trạng thái gửi về web.
-- Push route: `PushOpenActivity` chuyển `havs_route` cho web khi bridge đang sống.
+- Push route: `PushOpenActivity` chỉ chuyển route cùng origin (hoặc đường dẫn
+  tương đối) cho web; URL ngoài origin bị bỏ qua và không thể đổi `web_url`.
 - Lưu ý: app gốc `co.havs_ai.app.twa` vẫn cài trên máy và đăng ký trùng scheme
   (`havs-identify`, `havs-push`, `app-review`, `https://app.havs.ai`).
   Android ưu tiên app gốc, nên khi test phải dùng explicit component, ví dụ:

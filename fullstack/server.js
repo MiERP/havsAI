@@ -9,10 +9,11 @@ const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
-const DATA_DIR = path.join(ROOT, 'data');
+const DATA_DIR = process.env.HAVS_DATA_DIR ? path.resolve(process.env.HAVS_DATA_DIR) : path.join(ROOT, 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const DB_PATH = path.join(DATA_DIR, 'havs.db');
 const LEGACY_DB_PATH = path.join(DATA_DIR, 'astra.db');
+fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(DB_PATH) && fs.existsSync(LEGACY_DB_PATH)) {
   fs.copyFileSync(LEGACY_DB_PATH, DB_PATH);
 }
@@ -36,7 +37,8 @@ if (!fs.existsSync(DB_PATH) && fs.existsSync(LEGACY_DB_PATH)) {
 })();
 
 const PORT = Number(process.env.PORT || 3000);
-const DEV = process.env.NODE_ENV !== 'production';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const ALLOW_DEV_OTP = !IS_PRODUCTION && process.env.ALLOW_DEV_OTP === 'true';
 const HOME = process.env.USERPROFILE || process.env.HOME || '';
 
 function readJsonFile(file) {
@@ -138,6 +140,8 @@ ensureColumn('profiles', 'notifications', 'notifications INTEGER DEFAULT 1');
 ensureColumn('messages', 'tools_json', 'tools_json TEXT');
 ensureColumn('preps', 'plan_json', 'plan_json TEXT');
 ensureColumn('preps', 'updated_at', 'updated_at INTEGER');
+ensureColumn('preps', 'material_upload_id', 'material_upload_id TEXT');
+ensureColumn('preps', 'source', 'source TEXT');
 ensureColumn('preps', 'share_id', 'share_id TEXT');
 ensureColumn('preps', 'school', 'school TEXT');
 ensureColumn('preps', 'curriculum', 'curriculum TEXT');
@@ -158,6 +162,46 @@ const now = () => Date.now();
 const uid = () => crypto.randomUUID();
 const token = () => crypto.randomBytes(24).toString('hex');
 
+async function deliverOtp(req, email, code) {
+  const text = `Mã đăng nhập havsAI của bạn là ${code}. Mã có hiệu lực trong 5 phút.`;
+  const from = process.env.OTP_FROM_EMAIL;
+  if (process.env.SMTP_URL && from) {
+    try {
+      const nodemailer = require('nodemailer');
+      const transport = nodemailer.createTransport(process.env.SMTP_URL);
+      await transport.sendMail({ from, to: email, subject: 'Mã đăng nhập havsAI', text });
+      return { ok: true };
+    } catch (error) {
+      console.error('OTP SMTP error:', error.message);
+      return { ok: false, error: 'email_send_failed' };
+    }
+  }
+  if (process.env.RESEND_API_KEY && from) {
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to: email, subject: 'Mã đăng nhập havsAI', text }),
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!response.ok) {
+        console.error('OTP email error:', response.status);
+        return { ok: false, error: 'email_send_failed' };
+      }
+      return { ok: true };
+    } catch (error) {
+      console.error('OTP email error:', error.message);
+      return { ok: false, error: 'email_send_failed' };
+    }
+  }
+  const host = String(req.headers.host || '').replace(/:\d+$/, '').toLowerCase();
+  if (!IS_PRODUCTION && ['localhost', '127.0.0.1', '[::1]', '::1'].includes(host)) {
+    console.log('OTP', email, code);
+    return { ok: true };
+  }
+  return { ok: false, error: 'email_not_configured' };
+}
+
 function send(res, status, body, headers = {}) {
   const data = typeof body === 'string' ? body : JSON.stringify(body);
   res.writeHead(status, {
@@ -176,6 +220,15 @@ function parseCookies(req) {
     if (idx > 0) out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
   }
   return out;
+}
+
+function secureCookie(req) {
+  if (process.env.COOKIE_SECURE !== undefined) return process.env.COOKIE_SECURE === 'true';
+  if (req.socket && req.socket.encrypted) return true;
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  if (proto === 'https') return true;
+  const host = String(req.headers.host || '').replace(/:\d+$/, '').toLowerCase();
+  return !['localhost', '127.0.0.1', '[::1]', '::1'].includes(host);
 }
 
 function readBody(req, limit = 12 * 1024 * 1024) {
@@ -931,14 +984,33 @@ function route(req, res) {
     const model = AI_PROVIDER === 'commandcode' ? COMMANDCODE.model : AI_PROVIDER === 'deepseek' ? DEEPSEEK.model : 'mock';
     return send(res, 200, { ok: true, provider: AI_PROVIDER, model, visionModel: VISION.model });
   }
+  if (p === '/.well-known/assetlinks.json') {
+    const fingerprints = String(process.env.ANDROID_SHA256_FINGERPRINTS || '')
+      .split(',').map((value) => value.trim()).filter(Boolean);
+    if (!fingerprints.length || fingerprints.some((value) => !/^([0-9a-f]{2}:){31}[0-9a-f]{2}$/i.test(value))) {
+      return send(res, 503, { error: 'assetlinks_not_configured' });
+    }
+    return send(res, 200, [{
+      relation: ['delegate_permission/common.handle_all_urls'],
+      target: {
+        namespace: 'android_app',
+        package_name: process.env.ANDROID_PACKAGE_NAME || 'com.havs.ai',
+        sha256_cert_fingerprints: fingerprints
+      }
+    }], { 'Cache-Control': 'public, max-age=300' });
+  }
   if (p === '/api/auth/request-code' && req.method === 'POST') {
-    return readJson(req).then((body) => {
+    return readJson(req).then(async (body) => {
       const email = String(body.email || '').trim().toLowerCase();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return send(res, 400, { error: 'invalid_email' });
-      const code = DEV ? '123456' : String(Math.floor(100000 + Math.random() * 900000));
+      const code = ALLOW_DEV_OTP ? '123456' : String(crypto.randomInt(0, 1000000)).padStart(6, '0');
       otpCodes.set(email, { code, expires: now() + 5 * 60 * 1000 });
-      console.log('OTP', email, code);
-      return send(res, 200, { sent: true, ...(DEV ? { devCode: code } : {}) });
+      const delivery = await deliverOtp(req, email, code);
+      if (!delivery.ok) {
+        otpCodes.delete(email);
+        return send(res, 503, { error: delivery.error });
+      }
+      return send(res, 200, { sent: true, ...(ALLOW_DEV_OTP ? { devCode: code } : {}) });
     }).catch((e) => send(res, 400, { error: e.message }));
   }
   if (p === '/api/auth/verify' && req.method === 'POST') {
@@ -946,7 +1018,7 @@ function route(req, res) {
       const email = String(body.email || '').trim().toLowerCase();
       const code = String(body.code || '').trim();
       const entry = otpCodes.get(email);
-      const valid = DEV && code === '123456' || (entry && entry.code === code && entry.expires > now());
+      const valid = !!entry && entry.code === code && entry.expires > now();
       if (!valid) return send(res, 401, { error: 'invalid_code' });
       otpCodes.delete(email);
       let user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
@@ -960,7 +1032,7 @@ function route(req, res) {
       db.prepare('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)').run(session, user.id, now());
       const profile = db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(user.id);
       send(res, 200, { user: { id: user.id, email: user.email }, profile: publicProfile(profile) }, {
-        'Set-Cookie': `havs_session=${session}; HttpOnly; Path=/; SameSite=Lax; Max-Age=2592000`
+        'Set-Cookie': `havs_session=${session}; HttpOnly; Path=/; SameSite=Lax; Max-Age=2592000${secureCookie(req) ? '; Secure' : ''}`
       });
     }).catch((e) => send(res, 400, { error: e.message }));
   }
@@ -972,7 +1044,7 @@ function route(req, res) {
   if (p === '/api/auth/logout' && req.method === 'POST') {
     const cookies = parseCookies(req);
     if (cookies.havs_session) db.prepare('DELETE FROM sessions WHERE token = ?').run(cookies.havs_session);
-    return send(res, 200, { ok: true }, { 'Set-Cookie': 'havs_session=; HttpOnly; Path=/; Max-Age=0' });
+    return send(res, 200, { ok: true }, { 'Set-Cookie': `havs_session=; HttpOnly; Path=/; Max-Age=0${secureCookie(req) ? '; Secure' : ''}` });
   }
 
   if (p === '/api/onboarding' && req.method === 'PUT') {
@@ -1053,8 +1125,9 @@ function route(req, res) {
     }).catch((e) => send(res, 400, { error: e.message }));
   }
   if (p.startsWith('/uploads/')) {
+    const ctx = requireUser(req, res); if (!ctx) return;
     const name = path.basename(p);
-    const row = db.prepare('SELECT * FROM uploads WHERE path LIKE ?').get(`%${name}`);
+    const row = db.prepare('SELECT * FROM uploads WHERE user_id = ? AND path LIKE ?').get(ctx.user.id, `%${name}`);
     if (!row || !fs.existsSync(row.path)) return send(res, 404, 'not found');
     res.writeHead(200, { 'Content-Type': row.mime, 'Cache-Control': 'private, max-age=3600' });
     return fs.createReadStream(row.path).pipe(res);
@@ -1239,7 +1312,11 @@ function route(req, res) {
     const ctx = requireUser(req, res); if (!ctx) return;
     return readJson(req).then((body) => {
       const id = uid();
-      db.prepare('INSERT INTO preps (id, user_id, title, subject, exam_date, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, ctx.user.id, String(body.title || 'Đề ôn tập').slice(0, 120), String(body.subject || 'math'), String(body.examDate || ''), 'draft', now());
+      db.prepare('INSERT INTO preps (id, user_id, title, subject, exam_date, status, material_upload_id, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+        id, ctx.user.id, String(body.title || 'Đề ôn tập').slice(0, 120), String(body.subject || 'math'),
+        String(body.examDate || ''), 'draft', body.uploadId ? String(body.uploadId) : null,
+        body.source ? String(body.source).slice(0, 40) : null, now()
+      );
       return send(res, 200, { id });
     }).catch((e) => send(res, 400, { error: e.message }));
   }
@@ -1254,7 +1331,19 @@ function route(req, res) {
         '{"title":string,"subject":string,"examDate":string,"summary":string,' +
         '"days":[{"day":number,"focus":string,"tasks":[string]}],' +
         '"practice":[{"question":string,"answer":string}],"tips":[string]}.';
-      const userPrompt = `Môn: ${prep.subject}\nTên đề: ${prep.title}\nNgày thi: ${prep.exam_date || 'chưa rõ'}\n` +
+      let materialContext = '';
+      if (prep.material_upload_id) {
+        try {
+          const row = findUpload(ctx.user.id, prep.material_upload_id);
+          const material = row && /^image\//i.test(row.mime || '')
+            ? await analyzeImageUpload(ctx.user.id, prep.material_upload_id)
+            : await extractUploadText(ctx.user.id, prep.material_upload_id);
+          if (material?.text) {
+            materialContext = `\nTài liệu tham khảo (${material.filename || 'tài liệu'}):\n${String(material.text).slice(0, 6000)}\n`;
+          }
+        } catch {}
+      }
+      const userPrompt = `Môn: ${prep.subject}\nTên đề: ${prep.title}\nNgày thi: ${prep.exam_date || 'chưa rõ'}\n${materialContext}` +
         'Hãy tạo kế hoạch 5 ngày, 3-5 nhiệm vụ mỗi ngày, 3 câu luyện tập và 3 mẹo.';
       let plan = null;
       try {
@@ -1650,7 +1739,7 @@ function route(req, res) {
   return serveStatic(req, res, p);
 }
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.mp3': 'audio/mpeg', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.mp3': 'audio/mpeg', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf' };
 
 function serveStatic(req, res, p) {
   const rel = p === '/' ? 'index.html' : decodeURIComponent(p.replace(/^\/+/, ''));
@@ -1667,10 +1756,24 @@ function serveStatic(req, res, p) {
   return fs.createReadStream(file).pipe(res);
 }
 
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
   Promise.resolve(route(req, res)).catch((error) => {
     console.error(error);
     if (!res.headersSent) send(res, 500, { error: 'internal_error' });
     else res.end();
   });
-}).listen(PORT, () => console.log(`havsAI fullstack on http://localhost:${PORT} (ai=${AI_PROVIDER})`));
+});
+
+if (require.main === module) {
+  server.listen(PORT, () => {
+    if (ALLOW_DEV_OTP) {
+      console.warn('WARNING: ALLOW_DEV_OTP=true — the universal OTP 123456 is accepted. Never enable this on a public deployment.');
+    }
+    if (IS_PRODUCTION && !process.env.SMTP_URL && !process.env.RESEND_API_KEY) {
+      console.warn('WARNING: no OTP mailer configured (SMTP_URL or RESEND_API_KEY); login will be unavailable.');
+    }
+    console.log(`havsAI fullstack on http://localhost:${server.address().port} (ai=${AI_PROVIDER})`);
+  });
+}
+
+module.exports = { server, db };

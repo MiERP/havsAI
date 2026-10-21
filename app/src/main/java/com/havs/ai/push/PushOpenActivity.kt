@@ -12,28 +12,25 @@ import org.json.JSONObject
 class PushOpenActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val url = intent?.getStringExtra("url").orEmpty()
+        val route = PushRoutePolicy.resolve(AppConfig.webUrl(this), intent?.getStringExtra("url"))
 
-        if (BridgeHub.sender != null) {
+        if (route != null && BridgeHub.sender != null) {
             BridgeHub.send(
                 BridgeProtocol.event(
                     BridgeProtocol.ROUTE,
                     null,
-                    JSONObject().put("path", url).put("source", "push")
+                    JSONObject().put("path", route).put("source", "push")
                 )
             )
             finish()
             return
         }
 
-        val target = Intent(this, LauncherActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        if (url.startsWith("http")) {
-            target.putExtra("web_url", url)
-        } else if (url.isNotBlank()) {
-            AppConfig.set(this, "pending_route", url)
-        }
-        startActivity(target)
+        if (route != null) AppConfig.set(this, "pending_route", route)
+        startActivity(
+            Intent(this, LauncherActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        )
         finish()
     }
 }

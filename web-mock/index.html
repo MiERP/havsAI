@@ -3,19 +3,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#00a10d" />
   <title>havsAI — Mock PWA</title>
   <link rel="manifest" href="/manifest.webmanifest" />
   <style>
     :root { color-scheme: dark; }
-    body { margin: 0; padding: 24px; font-family: system-ui, sans-serif; background: #0d0d0d; color: #f4f4f4; }
+    body { margin: 0; padding: 24px; font-family: system-ui, sans-serif; background: #081005; color: #f4f7f1; }
     h1 { font-size: 20px; margin: 0 0 4px; }
-    p { color: #aaa; margin: 0 0 16px; }
+    p { color: #a9b7a2; margin: 0 0 16px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-width: 520px; }
-    button { padding: 12px; border: 1px solid #333; border-radius: 10px; background: #1a1a1a; color: #f4f4f4; font-size: 14px; }
-    button:active { background: #2a2a2a; }
-    #bridge { font-weight: 600; color: #f5a623; }
-    #bridge.ready { color: #4cd964; }
-    pre { margin-top: 16px; padding: 12px; background: #141414; border-radius: 10px; height: 320px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+    button { padding: 12px; border: 1px solid #233a1c; border-radius: 10px; background: #152411; color: #f4f7f1; font-size: 14px; }
+    button:active { background: #1c2f16; }
+    #bridge { font-weight: 600; color: #d6a400; }
+    #bridge.ready { color: #00a10d; }
+    pre { margin-top: 16px; padding: 12px; background: #0f1a0b; border-radius: 10px; height: 320px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
   </style>
 </head>
 <body>
@@ -30,7 +31,7 @@
     <button onclick="send('havs-track-event', {event: 'mock_click', props: {source: 'web'}})">Track event</button>
     <button onclick="send('havs-identify', {userId: 'mock-user'})">Identify</button>
     <button onclick="openDeepLink('havs-identify://set?userId=mock-user')">Identify (deep link)</button>
-    <button onclick="openDeepLink('https://app.havs.ai/onboarding')">App link</button>
+    <button onclick="openDeepLink('https://103-20-102-229.sslip.io/onboarding')">App link</button>
   </div>
   <pre id="log"></pre>
   <script>

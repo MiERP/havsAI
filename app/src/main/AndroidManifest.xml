@@ -36,20 +36,15 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="app.havs.ai" />
+                <data android:scheme="https" android:host="${appLinkHost}" />
             </intent-filter>
         </activity>
 
         <activity
             android:name=".push.PushOpenActivity"
-            android:exported="true"
+            android:exported="false"
             android:excludeFromRecents="true"
-            android:theme="@style/Theme.Havs.Transparent">
-            <intent-filter>
-                <action android:name="com.havs.ai.OPEN_PUSH" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
+            android:theme="@style/Theme.Havs.Transparent" />
 
         <activity
             android:name=".push.PushPermissionActivity"

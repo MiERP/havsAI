@@ -73,7 +73,6 @@ class LauncherActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(buildSplash())
         bridge = NativeBridge(this)
-        intent?.getStringExtra("web_url")?.let { AppConfig.setWebUrl(this, it) }
         BridgeHub.sender = { json -> session?.postMessage(json, null) }
         bindService()
     }
@@ -82,7 +81,7 @@ class LauncherActivity : Activity() {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.rgb(13, 13, 13))
+            setBackgroundColor(Color.rgb(0, 161, 13))
             setPadding(48, 48, 48, 48)
         }
         layout.addView(TextView(this).apply {
@@ -94,13 +93,15 @@ class LauncherActivity : Activity() {
         statusView = TextView(this).apply {
             text = "Đang kết nối…"
             textSize = 15f
-            setTextColor(Color.rgb(170, 170, 170))
+            setTextColor(Color.rgb(214, 164, 0))
             gravity = Gravity.CENTER
             setPadding(0, 20, 0, 32)
         }
         layout.addView(statusView)
         retryButton = Button(this).apply {
             text = "Mở lại havsAI"
+            setTextColor(Color.rgb(8, 16, 5))
+            setBackgroundColor(Color.rgb(214, 164, 0))
             visibility = View.GONE
             setOnClickListener {
                 retryButton.visibility = View.GONE
@@ -164,8 +165,10 @@ class LauncherActivity : Activity() {
     }
 
     private fun launchUri(): Uri {
+        val web = Uri.parse(AppConfig.webUrl(this))
         val data = intent?.data
-        return if (data != null && data.scheme == "https" && data.host == "app.havs.ai") data else Uri.parse(AppConfig.webUrl(this))
+        if (data != null && data.scheme == "https" && data.host?.equals(web.host, ignoreCase = true) == true) return data
+        return web
     }
 
     private fun launchTwa() {
@@ -231,7 +234,6 @@ class LauncherActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.getStringExtra("web_url")?.let { AppConfig.setWebUrl(this, it) }
     }
 
     override fun onDestroy() {

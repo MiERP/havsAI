@@ -2,6 +2,7 @@ package com.havs.ai.push
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.graphics.Color
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -38,6 +39,7 @@ class HavsMessagingService : FirebaseMessagingService() {
             .setContentText(body)
             .setAutoCancel(true)
             .setContentIntent(pending)
+            .setColor(Color.rgb(0, 161, 13))
             .build()
 
         runCatching {

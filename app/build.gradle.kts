@@ -15,9 +15,10 @@ android {
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "DEFAULT_WEB_URL", "\"http://localhost:3000/\"")
-        buildConfigField("String", "DEFAULT_API_URL", "\"http://localhost:3000/\"")
-        buildConfigField("String", "SOURCE_ORIGIN", "\"http://localhost:3000\"")
+        buildConfigField("String", "DEFAULT_WEB_URL", "\"https://103-20-102-229.sslip.io/\"")
+        buildConfigField("String", "DEFAULT_API_URL", "\"https://103-20-102-229.sslip.io/\"")
+        buildConfigField("String", "SOURCE_ORIGIN", "\"https://103-20-102-229.sslip.io\"")
+        manifestPlaceholders["appLinkHost"] = "103-20-102-229.sslip.io"
     }
 
     buildTypes {

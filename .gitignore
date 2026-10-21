@@ -12,5 +12,6 @@ fullstack/node_modules/
 *.db
 .commandcode/
 *.log
+docs/New folder/
 
 

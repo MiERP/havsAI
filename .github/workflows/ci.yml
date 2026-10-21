@@ -16,8 +16,26 @@ jobs:
       - uses: android-actions/setup-android@v3
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon
+      - name: Compile device tests
+        run: ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon
       - name: Assemble debug
         run: ./gradlew :app:assembleDebug --no-daemon
+
+  fullstack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: fullstack/package-lock.json
+      - name: Install dependencies
+        working-directory: fullstack
+        run: npm ci
+      - name: Node tests
+        working-directory: fullstack
+        run: npm test
 
   mocks:
     runs-on: ubuntu-latest
