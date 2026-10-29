@@ -480,14 +480,34 @@ async function generatePrepPlan(prep, userId) {
     }
   }
 
-  const result = await callModelJson(PLAN_SYSTEM, buildPlanPrompt(prep, materialName, materialText), { maxTokens: 5000 });
-  if (result.error) error = result.error;
+  const prompt = buildPlanPrompt(prep, materialName, materialText);
+  let result = await callModelJson(PLAN_SYSTEM, prompt, { maxTokens: 8000 });
   let plan = parseJsonLoose(result.content);
+  if (!plan || !Array.isArray(plan.days) || !plan.days.length) {
+    const retry = await callModelJson(
+      PLAN_SYSTEM,
+      prompt + '\n\nLần trả lời trước bị lỗi hoặc bị cắt. Hãy trả về JSON hợp lệ và NGẮN HƠN: mỗi sections body tối đa 2 câu, mỗi trường tối đa 40 từ.',
+      { maxTokens: 8000 }
+    );
+    const retryPlan = parseJsonLoose(retry.content);
+    if (retryPlan && Array.isArray(retryPlan.days) && retryPlan.days.length) {
+      plan = retryPlan;
+      result = retry;
+    } else if (retry.error) {
+      result = retry;
+    }
+  }
+  if (result.error) error = result.error;
   const usedAi = Boolean(plan && Array.isArray(plan.days) && plan.days.length);
   if (usedAi) {
     plan.version = 2;
     plan.days = plan.days.slice(0, 7);
   } else {
+    if (!error) {
+      error = result.finish === 'length'
+        ? 'truncated'
+        : `invalid_json_${String(result.content || '').length}`;
+    }
     plan = fallbackPlan(prep);
   }
   plan.generatedBy = usedAi ? 'ai' : 'fallback';
@@ -877,7 +897,7 @@ async function callModelJson(system, user, options = {}) {
           }
           const json = await response.json();
           const content = String(json?.choices?.[0]?.message?.content || '').trim();
-          if (content) return { content, error: '', model };
+          if (content) return { content, error: '', model, finish: json?.choices?.[0]?.finish_reason || '' };
           lastError = 'empty_content';
         } catch (error) {
           lastError = error.name === 'TimeoutError' ? 'timeout' : error.message;
