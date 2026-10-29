@@ -291,11 +291,53 @@ function publicProfile(profile) {
 
 const SUBJECTS = ['math', 'physics', 'chemistry', 'biology', 'english', 'literature', 'history', 'geography', 'cs'];
 const VOICES = [
-  { id: 'neil', name: 'Neil', locale: 'vi-VN', gender: 'male' },
-  { id: 'aria', name: 'Aria', locale: 'vi-VN', gender: 'female' },
-  { id: 'minh', name: 'Minh', locale: 'vi-VN', gender: 'male' },
-  { id: 'lena', name: 'Lena', locale: 'en-US', gender: 'female' }
+  { id: 'neil', name: 'Nam Minh (Tiếng Việt · Nam)', locale: 'vi-VN', gender: 'male' },
+  { id: 'aria', name: 'Hoài My (Tiếng Việt · Nữ)', locale: 'vi-VN', gender: 'female' },
+  { id: 'minh', name: 'Quốc Anh (Tiếng Việt · Nam)', locale: 'vi-VN', gender: 'male' },
+  { id: 'lena', name: 'Thanh Hà (Tiếng Việt · Nữ)', locale: 'vi-VN', gender: 'female' }
 ];
+
+function splitTtsChunks(text, maxLen = 170) {
+  const cleaned = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 1600);
+  if (!cleaned) return [];
+  const rawParts = cleaned.split(/(?<=[.!?।;:\n])\s+|(?<=,\s)/);
+  const chunks = [];
+  let current = '';
+  for (const part of rawParts) {
+    if (!part) continue;
+    if ((current + ' ' + part).trim().length <= maxLen) {
+      current = (current + ' ' + part).trim();
+    } else {
+      if (current) chunks.push(current);
+      if (part.length <= maxLen) {
+        current = part;
+      } else {
+        for (let i = 0; i < part.length; i += maxLen) {
+          chunks.push(part.slice(i, i + maxLen));
+        }
+        current = '';
+      }
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.slice(0, 10);
+}
+
+async function synthesizeVietnameseMp3(text) {
+  const chunks = splitTtsChunks(text);
+  if (!chunks.length) return null;
+  const buffers = [];
+  for (const chunk of chunks) {
+    const ttsUrl = `https://translate.googleapis.com/translate_tts?ie=UTF-8&tl=vi&client=tw-ob&q=${encodeURIComponent(chunk)}`;
+    const response = await fetch(ttsUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!response.ok) throw new Error(`tts_http_${response.status}`);
+    buffers.push(Buffer.from(await response.arrayBuffer()));
+  }
+  return Buffer.concat(buffers);
+}
 
 function touchUsage(userId) {
   db.prepare('UPDATE profiles SET usage_minutes = usage_minutes + 1, updated_at = ? WHERE user_id = ?').run(now(), userId);
@@ -1107,8 +1149,29 @@ function route(req, res) {
     return send(res, 200, { usageMinutes: ctx.profile.usage_minutes, usageLimit: ctx.profile.usage_limit });
   }
   if (p === '/api/voices') {
-    const ctx = requireUser(req, res); if (!ctx) return;
     return send(res, 200, { voices: VOICES });
+  }
+  if (p === '/api/tts' && (req.method === 'GET' || req.method === 'POST')) {
+    const handleTts = async (text) => {
+      const clean = String(text || '').trim();
+      if (!clean) return send(res, 400, { error: 'empty_text' });
+      try {
+        const mp3 = await synthesizeVietnameseMp3(clean);
+        if (!mp3 || !mp3.length) return send(res, 400, { error: 'empty_audio' });
+        res.writeHead(200, {
+          'Content-Type': 'audio/mpeg',
+          'Content-Length': mp3.length,
+          'Cache-Control': 'private, max-age=3600'
+        });
+        return res.end(mp3);
+      } catch (error) {
+        return send(res, 502, { error: 'tts_failed', detail: error.message });
+      }
+    };
+    if (req.method === 'GET') {
+      return handleTts(url.searchParams.get('text') || '');
+    }
+    return readJson(req).then((body) => handleTts(body.text || '')).catch((e) => send(res, 400, { error: e.message }));
   }
   if (p === '/api/events' && req.method === 'POST') {
     return readJson(req).then((body) => {

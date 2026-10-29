@@ -336,4 +336,10 @@ test('multiple devices for the same user can connect concurrently and receive re
   const listOnAndroid = await request('GET', '/api/chats', null, deviceAndroid);
   const chats = (await listOnAndroid.json()).chats;
   assert.ok(chats.some((c) => c.id === chatId && c.title === 'Đồng bộ PC & Mobile'));
+
+  const voicesRes = await request('GET', '/api/voices', null, deviceDesktop);
+  assert.equal(voicesRes.status, 200);
+  const { voices } = await voicesRes.json();
+  assert.ok(voices.length >= 4);
+  assert.ok(voices.every((v) => v.locale === 'vi-VN'), 'all default voices must be Vietnamese (vi-VN)');
 });

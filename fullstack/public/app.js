@@ -898,8 +898,10 @@ async function loadVoices() {
     state.voices = data.voices || [];
   } catch {
     state.voices = [
-      { id: 'neil', name: 'Neil', locale: 'vi-VN', gender: 'male' },
-      { id: 'aria', name: 'Aria', locale: 'vi-VN', gender: 'female' }
+      { id: 'neil', name: 'Nam Minh (Tiếng Việt · Nam)', locale: 'vi-VN', gender: 'male' },
+      { id: 'aria', name: 'Hoài My (Tiếng Việt · Nữ)', locale: 'vi-VN', gender: 'female' },
+      { id: 'minh', name: 'Quốc Anh (Tiếng Việt · Nam)', locale: 'vi-VN', gender: 'male' },
+      { id: 'lena', name: 'Thanh Hà (Tiếng Việt · Nữ)', locale: 'vi-VN', gender: 'female' }
     ];
   }
 }
@@ -1020,6 +1022,7 @@ async function sendMessage(text) {
 
 let speechUnlocked = false;
 let recognition = null;
+let currentTtsAudio = null;
 
 function unlockSpeech() {
   if (speechUnlocked || !('speechSynthesis' in window)) return;
@@ -1033,14 +1036,15 @@ function unlockSpeech() {
 }
 document.addEventListener('pointerdown', unlockSpeech, { once: true });
 
-function pickVoice() {
+function pickVoice(forcedVoiceId) {
   if (!('speechSynthesis' in window)) return null;
   const voices = window.speechSynthesis.getVoices();
-  const vi = voices.filter((v) => /^vi/i.test(v.lang || ''));
-  const pref = state.profile?.voice;
+  const vi = voices.filter((v) => /^vi/i.test(v.lang || '') || /vietnam|tiếng việt/i.test(v.name || ''));
+  if (!vi.length) return null;
+  const pref = forcedVoiceId || state.profile?.voice || state.onboarding?.voice || 'neil';
   const female = pref === 'aria' || pref === 'lena';
-  const byName = vi.find((v) => (female ? /female|nữ|linh|mai|lan/i : /male|nam|minh|an/i).test(v.name || ''));
-  return byName || vi[0] || voices.find((v) => v.default) || voices[0] || null;
+  const byName = vi.find((v) => (female ? /female|nữ|hoài|my|linh|mai|lan/i : /male|nam|minh|an/i).test(v.name || ''));
+  return byName || vi[0] || null;
 }
 
 function cleanForSpeech(text) {
@@ -1056,13 +1060,17 @@ function cleanForSpeech(text) {
     .trim();
 }
 
-function speakNow(text) {
+function speakNow(text, forcedVoiceId) {
+  if (!('speechSynthesis' in window)) {
+    toast('Thiết bị không hỗ trợ đọc văn bản');
+    return;
+  }
   try {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text.slice(0, 2400));
-    const voice = pickVoice();
+    const voice = pickVoice(forcedVoiceId);
     if (voice) utterance.voice = voice;
-    utterance.lang = voice?.lang || 'vi-VN';
+    utterance.lang = 'vi-VN';
     utterance.rate = 0.98;
     utterance.pitch = 1;
     utterance.onerror = (event) => {
@@ -1074,21 +1082,39 @@ function speakNow(text) {
   }
 }
 
-function speak(text) {
-  if (!('speechSynthesis' in window)) { toast('Thiết bị không hỗ trợ đọc văn bản'); return; }
+function speak(text, forcedVoiceId) {
   const clean = cleanForSpeech(text);
   if (!clean) return;
-  unlockSpeech();
-  if (window.speechSynthesis.getVoices().length) return speakNow(clean);
-  let done = false;
-  const handler = () => {
-    if (done) return;
-    done = true;
-    window.speechSynthesis.onvoiceschanged = null;
-    speakNow(clean);
-  };
-  window.speechSynthesis.onvoiceschanged = handler;
-  setTimeout(() => { if (!done) handler(); }, 900);
+  const voiceId = forcedVoiceId || state.profile?.voice || state.onboarding?.voice || 'neil';
+  if (voiceId === 'none') return;
+
+  try {
+    if (currentTtsAudio) {
+      currentTtsAudio.pause();
+      currentTtsAudio.src = '';
+      currentTtsAudio = null;
+    }
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  } catch {}
+
+  try {
+    const audio = new Audio(`/api/tts?voice=${encodeURIComponent(voiceId)}&text=${encodeURIComponent(clean.slice(0, 1200))}`);
+    currentTtsAudio = audio;
+    audio.playbackRate = (voiceId === 'neil' || voiceId === 'minh') ? 0.97 : 1.02;
+    audio.onerror = () => {
+      if (currentTtsAudio === audio) currentTtsAudio = null;
+      unlockSpeech();
+      speakNow(clean, voiceId);
+    };
+    audio.play().catch(() => {
+      if (currentTtsAudio === audio) currentTtsAudio = null;
+      unlockSpeech();
+      speakNow(clean, voiceId);
+    });
+  } catch {
+    unlockSpeech();
+    speakNow(clean, voiceId);
+  }
 }
 
 function startVoiceInput() {
@@ -1125,9 +1151,8 @@ function startVoiceInput() {
 
 async function previewVoice(id) {
   if (id === 'none') return;
-  if (!('speechSynthesis' in window)) { toast('Thiết bị không hỗ trợ TTS'); return; }
   unlockSpeech();
-  speak('Xin chào, mình là havsAI. Cùng học bài hôm nay nhé.');
+  speak('Xin chào, mình là havsAI, gia sư tiếng Việt của bạn. Cùng học bài hôm nay nhé.', id);
 }
 
 async function resizeImage(file, maxEdge = 1568, quality = 0.82) {

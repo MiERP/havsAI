@@ -151,6 +151,8 @@ test('unified platform bridge, chat history management, and responsive desktop l
   const css = read(publicDir, 'styles.css');
   assert.match(css, /@media\s*\(min-width:\s*768px\)/);
   assert.match(css, /@media\s*\(min-width:\s*1024px\)/);
+  assert.match(css, /\.layout-shell\s*\{[^}]*flex-direction:\s*row/);
+  assert.match(css, /\.chat-stage\s*\{[^}]*flex:\s*1/);
   assert.match(css, /\.side-nav/);
   assert.match(css, /\.chat-sidebar/);
 
