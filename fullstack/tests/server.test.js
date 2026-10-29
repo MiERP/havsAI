@@ -120,6 +120,18 @@ test('dev OTP login sets HttpOnly SameSite session and rejects a wrong code', as
   assert.match(cookie, /HttpOnly/);
   assert.match(cookie, /SameSite=Lax/);
   assert.doesNotMatch(cookie, /Secure/);
+
+  const directDevOtp = await rawPost('/api/auth/verify', { email: 'direct-vps@example.com', code: '123456' }, {
+    Host: '103-20-102-229.sslip.io',
+    'X-Forwarded-Proto': 'https'
+  });
+  assert.equal(directDevOtp.status, 200);
+
+  const directWrongOtp = await rawPost('/api/auth/verify', { email: 'direct-vps@example.com', code: '654321' }, {
+    Host: '103-20-102-229.sslip.io',
+    'X-Forwarded-Proto': 'https'
+  });
+  assert.equal(directWrongOtp.status, 401);
 });
 
 test('session cookie is Secure behind HTTPS and for a non-local host', async () => {

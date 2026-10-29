@@ -277,6 +277,8 @@ function renderBoot() {
 }
 
 function renderLogin() {
+  const emailVal = state.loginEmail || '';
+  const codeVal = state.loginCode !== undefined ? state.loginCode : '123456';
   return `<div class="screen center pad">
     <div class="center-text" style="margin-bottom:26px">
       <div class="logo" style="font-size:30px">havs<span>AI</span></div>
@@ -284,8 +286,8 @@ function renderLogin() {
       <p>Đăng nhập bằng email để bắt đầu. havsAI dùng OTP dev: <b>123456</b>.</p>
     </div>
     <div class="card">
-      <div class="field"><label>Email</label><input id="email" class="input" type="email" inputmode="email" placeholder="ban@example.com" autocomplete="email" /></div>
-      <div class="field"><label>Mã OTP</label><input id="code" class="input" inputmode="numeric" placeholder="123456" autocomplete="one-time-code" /></div>
+      <div class="field"><label>Email</label><input id="email" class="input" type="email" inputmode="email" value="${esc(emailVal)}" placeholder="ban@example.com" autocomplete="email" /></div>
+      <div class="field"><label>Mã OTP</label><input id="code" class="input" inputmode="numeric" value="${esc(codeVal)}" placeholder="123456" autocomplete="one-time-code" /></div>
       <div class="row">
         <button class="btn secondary" data-action="send-code">Gửi mã</button>
         <button class="btn" data-action="verify">Đăng nhập</button>
@@ -1207,14 +1209,39 @@ document.addEventListener('click', async (event) => {
   const value = el.dataset.value;
 
   if (action === 'send-code') {
-    const email = document.getElementById('email')?.value.trim();
+    const email = document.getElementById('email')?.value.trim() || '';
+    state.loginEmail = email;
+    if (!email) { toast('Vui lòng nhập email'); return; }
     try {
       const data = await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ email }) });
-      toast(data.devCode ? `Mã OTP dev: ${data.devCode}` : 'Đã gửi mã');
-    } catch (error) { toast(error.message); }
+      if (data.devCode) {
+        state.loginCode = data.devCode;
+        const codeEl = document.getElementById('code');
+        if (codeEl) codeEl.value = data.devCode;
+      }
+      toast(data.devCode ? `Mã OTP dev: ${data.devCode}` : 'Đã gửi mã OTP tới email');
+    } catch (error) {
+      if (error.message === 'email_not_configured') {
+        state.loginCode = '123456';
+        const codeEl = document.getElementById('code');
+        if (codeEl) codeEl.value = '123456';
+        toast('Dùng mã OTP dev: 123456 rồi bấm Đăng nhập');
+      } else {
+        toast(error.message === 'invalid_email' ? 'Vui lòng nhập đúng định dạng email' : error.message);
+      }
+    }
   } else if (action === 'verify') {
-    const email = document.getElementById('email')?.value.trim();
-    const code = document.getElementById('code')?.value.trim();
+    const email = document.getElementById('email')?.value.trim() || '';
+    const code = document.getElementById('code')?.value.trim() || '123456';
+    state.loginEmail = email;
+    state.loginCode = code;
+    state.error = '';
+    if (!email) {
+      state.error = 'Vui lòng nhập địa chỉ email';
+      toast(state.error);
+      render();
+      return;
+    }
     try {
       const data = await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ email, code }) });
       state.user = data.user; state.profile = data.profile;
@@ -1233,7 +1260,16 @@ document.addEventListener('click', async (event) => {
         await loadRouteData();
       }
       render();
-    } catch (error) { toast(error.message); state.error = error.message; render(); }
+    } catch (error) {
+      const msg = error.message === 'invalid_code'
+        ? 'Mã OTP không đúng (hãy nhập 123456)'
+        : error.message === 'invalid_email'
+          ? 'Địa chỉ email không hợp lệ'
+          : error.message;
+      toast(msg);
+      state.error = msg;
+      render();
+    }
   } else if (action === 'role') {
     state.onboarding.role = value; render();
   } else if (action === 'subject') {
