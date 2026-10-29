@@ -1,14 +1,49 @@
 {
   "id": "https://103-20-102-229.sslip.io/",
-  "name": "havsAI",
+  "name": "havsAI — Gia sư AI 24/7",
   "short_name": "havsAI",
-  "description": "Gia sư AI 24/7 cho mọi môn học",
+  "description": "Gia sư AI 24/7 & luyện thi đa thiết bị cho Học sinh, Phụ huynh và Giáo viên",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#ffffff",
   "theme_color": "#00a10d",
-  "orientation": "portrait",
+  "orientation": "any",
   "lang": "vi",
-  "icons": []
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Hỏi bài Gia sư AI",
+      "short_name": "Trò chuyện",
+      "url": "/",
+      "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Ôn thi & Đề thi thử",
+      "short_name": "Ôn thi",
+      "url": "/exam-preps",
+      "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "AI App Lab",
+      "short_name": "Lab",
+      "url": "/lab",
+      "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    }
+  ]
 }

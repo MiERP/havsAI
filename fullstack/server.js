@@ -50,6 +50,8 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const db = new DatabaseSync(DB_PATH);
 db.exec(`
 PRAGMA journal_mode = WAL;
+PRAGMA busy_timeout = 5000;
+PRAGMA synchronous = NORMAL;
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, created_at INTEGER NOT NULL
 );
@@ -100,6 +102,8 @@ CREATE TABLE IF NOT EXISTS lab_apps (
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_attempts_user ON attempts(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_calendar_user ON calendar_events(user_id, event_date);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_chats_user ON chats(user_id, created_at);
 `);
 
 function ensureColumn(table, column, definition) {
@@ -980,7 +984,16 @@ function route(req, res) {
   }
   if (p === '/api/health') {
     const status = ai.describe();
-    return send(res, 200, { ok: true, provider: status.provider, model: status.model, visionModel: status.visionModel });
+    let activeRealtime = 0;
+    for (const set of realtimeClients.values()) activeRealtime += set.size;
+    return send(res, 200, {
+      ok: true,
+      multiDevice: true,
+      realtimeConnections: activeRealtime,
+      provider: status.provider,
+      model: status.model,
+      visionModel: status.visionModel
+    });
   }
   if (p === '/.well-known/assetlinks.json') {
     const fingerprints = String(process.env.ANDROID_SHA256_FINGERPRINTS || '')
@@ -1083,7 +1096,9 @@ function route(req, res) {
         if (body[key] !== undefined) { sets.push(`${key} = ?`); values.push(body[key]); }
       }
       if (sets.length) { sets.push('updated_at = ?'); values.push(now(), ctx.user.id); db.prepare(`UPDATE profiles SET ${sets.join(', ')} WHERE user_id = ?`).run(...values); }
-      return send(res, 200, { profile: publicProfile(db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(ctx.user.id)) });
+      const profile = publicProfile(db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(ctx.user.id));
+      broadcastRealtime(ctx.user.id, 'profile.updated', { profile });
+      return send(res, 200, { profile });
     }).catch((e) => send(res, 400, { error: e.message }));
   }
   if (p === '/api/limits') {
@@ -1139,6 +1154,8 @@ function route(req, res) {
 
   if (p === '/api/realtime') {
     const ctx = requireUser(req, res); if (!ctx) return;
+    req.socket?.setNoDelay?.(true);
+    req.socket?.setKeepAlive?.(true, 15000);
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -1204,6 +1221,29 @@ function route(req, res) {
     const messages = db.prepare('SELECT id, role, content, image_url, tools_json, created_at FROM messages WHERE chat_id = ? ORDER BY created_at ASC').all(chatId);
     return send(res, 200, { chat, messages });
   }
+  const userChatRoute = p.match(/^\/api\/chats\/([^/]+)$/);
+  if (userChatRoute && req.method === 'PATCH') {
+    const ctx = requireUser(req, res); if (!ctx) return;
+    return readJson(req).then((body) => {
+      const chat = db.prepare('SELECT * FROM chats WHERE id = ? AND user_id = ?').get(userChatRoute[1], ctx.user.id);
+      if (!chat) return send(res, 404, { error: 'not_found' });
+      const title = body.title !== undefined ? String(body.title || '').trim().slice(0, 120) || chat.title : chat.title;
+      const subject = body.subject !== undefined && SUBJECTS.includes(body.subject) ? body.subject : chat.subject;
+      db.prepare('UPDATE chats SET title = ?, subject = ? WHERE id = ? AND user_id = ?').run(title, subject, chat.id, ctx.user.id);
+      const updated = db.prepare('SELECT id, subject, title, created_at FROM chats WHERE id = ?').get(chat.id);
+      broadcastRealtime(ctx.user.id, 'chat.updated', { chatId: chat.id, title: updated.title, subject: updated.subject });
+      return send(res, 200, { chat: updated });
+    }).catch((e) => send(res, 400, { error: e.message }));
+  }
+  if (userChatRoute && req.method === 'DELETE') {
+    const ctx = requireUser(req, res); if (!ctx) return;
+    const chat = db.prepare('SELECT * FROM chats WHERE id = ? AND user_id = ?').get(userChatRoute[1], ctx.user.id);
+    if (!chat) return send(res, 404, { error: 'not_found' });
+    db.prepare('DELETE FROM messages WHERE chat_id = ?').run(chat.id);
+    db.prepare('DELETE FROM chats WHERE id = ? AND user_id = ?').run(chat.id, ctx.user.id);
+    broadcastRealtime(ctx.user.id, 'chat.deleted', { chatId: chat.id });
+    return send(res, 200, { ok: true, id: chat.id });
+  }
 
   if (p === '/api/chat/stream' && req.method === 'POST') {
     const ctx = requireUser(req, res); if (!ctx) return;
@@ -1222,6 +1262,8 @@ function route(req, res) {
       const userMessageId = uid();
       db.prepare('INSERT INTO messages (id, chat_id, role, content, image_url, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(userMessageId, chatId, 'user', text, body.imageUrl || null, now());
 
+      req.socket?.setNoDelay?.(true);
+      req.socket?.setKeepAlive?.(true, 15000);
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
@@ -1711,8 +1753,9 @@ function route(req, res) {
       }
       values.push(ctx.user.id);
       db.prepare(`UPDATE profiles SET ${sets.join(', ')} WHERE user_id = ?`).run(...values);
-      const profile = db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(ctx.user.id);
-      return send(res, 200, { profile: publicProfile(profile), settings });
+      const profile = publicProfile(db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(ctx.user.id));
+      broadcastRealtime(ctx.user.id, 'profile.updated', { profile, settings });
+      return send(res, 200, { profile, settings });
     }).catch((e) => send(res, 400, { error: e.message }));
   }
 
@@ -1767,6 +1810,8 @@ const server = http.createServer((req, res) => {
     else res.end();
   });
 });
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
 
 if (require.main === module) {
   server.listen(PORT, () => {

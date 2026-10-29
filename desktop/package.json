@@ -1,0 +1,11 @@
+{
+  "name": "havsai-desktop",
+  "version": "1.0.0",
+  "description": "havsAI Multi-Device Desktop Application (Windows / macOS / Linux)",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build:win": "powershell -ExecutionPolicy Bypass -File ./build-windows.ps1"
+  }
+}

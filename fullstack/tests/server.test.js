@@ -266,3 +266,55 @@ test('exam prep generation falls back to a local plan when the AI provider is mo
   assert.ok(Array.isArray(body.plan.days));
   assert.ok(body.plan.days.length > 0);
 });
+
+test('users can create, rename, and delete their own chats while isolating other users', async () => {
+  const owner = await login('chat-owner@example.com');
+  const other = await login('chat-other@example.com');
+
+  const created = await request('POST', '/api/chats', { title: 'Hàm số bậc 2', subject: 'math' }, owner);
+  assert.equal(created.status, 200);
+  const { id: chatId } = await created.json();
+  assert.ok(chatId);
+
+  const forbiddenPatch = await request('PATCH', `/api/chats/${chatId}`, { title: 'Hack' }, other);
+  assert.equal(forbiddenPatch.status, 404);
+
+  const renamed = await request('PATCH', `/api/chats/${chatId}`, { title: 'Đạo hàm & Cực trị', subject: 'physics' }, owner);
+  assert.equal(renamed.status, 200);
+  const renamedBody = await renamed.json();
+  assert.equal(renamedBody.chat.title, 'Đạo hàm & Cực trị');
+  assert.equal(renamedBody.chat.subject, 'physics');
+
+  const forbiddenDelete = await request('DELETE', `/api/chats/${chatId}`, null, other);
+  assert.equal(forbiddenDelete.status, 404);
+
+  const deleted = await request('DELETE', `/api/chats/${chatId}`, null, owner);
+  assert.equal(deleted.status, 200);
+
+  const afterDelete = await request('GET', `/api/chats/${chatId}/messages`, null, owner);
+  assert.equal(afterDelete.status, 404);
+});
+
+test('multiple devices for the same user can connect concurrently and receive realtime broadcasts', async () => {
+  const email = 'multidevice@example.com';
+  const deviceAndroid = await login(email);
+  const deviceDesktop = await login(email);
+  assert.notEqual(deviceAndroid, deviceDesktop);
+
+  const [sessionA, sessionB, healthRes] = await Promise.all([
+    request('GET', '/api/auth/session', null, deviceAndroid),
+    request('GET', '/api/auth/session', null, deviceDesktop),
+    request('GET', '/api/health')
+  ]);
+  assert.equal((await sessionA.json()).authenticated, true);
+  assert.equal((await sessionB.json()).authenticated, true);
+  const health = await healthRes.json();
+  assert.equal(health.ok, true);
+  assert.equal(health.multiDevice, true);
+
+  const created = await request('POST', '/api/chats', { title: 'Đồng bộ PC & Mobile', subject: 'math' }, deviceDesktop);
+  const { id: chatId } = await created.json();
+  const listOnAndroid = await request('GET', '/api/chats', null, deviceAndroid);
+  const chats = (await listOnAndroid.json()).chats;
+  assert.ok(chats.some((c) => c.id === chatId && c.title === 'Đồng bộ PC & Mobile'));
+});

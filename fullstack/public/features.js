@@ -73,6 +73,8 @@ function navigate(path, options = {}) {
   else history.pushState({}, '', path);
   state.route = parseRoute();
   state.routeError = '';
+  state.chatDrawerOpen = false;
+  window.havsPlatform?.syncRoute(path);
   if (state.view !== 'main') {
     render();
     return;
@@ -183,6 +185,7 @@ function applyPreferences() {
   document.body.classList.toggle('dyslexia', !!state.settings?.dyslexia || !!state.profile?.settings?.dyslexia);
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
   if (accent) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', accent);
+  window.havsPlatform?.setTheme(theme);
 }
 
 function renderFeaturePage(route) {
@@ -285,22 +288,28 @@ function renderExamDetail() {
   return `<div class="pad">
     <button class="btn ghost" data-action="nav" data-value="/exam-preps">← Ôn thi</button>
     <h1>${esc(prep.title)}</h1><p>${esc(subjectName(prep.subject))} · ${fmtDate(prep.examDate)} · ${esc(prep.status)}</p>
-    <div class="card" style="margin-bottom:14px"><h2>Tiến độ</h2><p>${mastery.completedLessons || 0}/${mastery.totalLessons || prep.lessons?.length || 0} bài · ${mastery.attempts || 0} lần làm · TB ${mastery.averageScore || 0}%</p>
-      <div class="row"><button class="btn secondary" data-action="exam-share" data-value="${prep.id}">Chia sẻ</button><button class="btn ghost" data-action="nav" data-value="/calendar">Thêm lịch</button></div>
-      ${prep.shareId ? `<p class="small">Link chia sẻ: <code>/share/a/${esc(prep.shareId)}</code></p>` : ''}
-    </div>
-    <div class="card" style="margin-bottom:14px"><h2>Kế hoạch</h2>
-      ${(prep.plan?.days || []).map((day) => `<div style="margin:12px 0"><b>Ngày ${esc(day.day)} · ${esc(day.focus || '')}</b><ul>${(day.tasks || []).map((task) => `<li>${esc(task)}</li>`).join('')}</ul></div>`).join('') || '<p>Chưa có kế hoạch.</p>'}
-      ${prep.plan?.summary ? `<p>${esc(prep.plan.summary)}</p>` : ''}
-    </div>
-    <div class="card" style="margin-bottom:14px"><h2>Bài học</h2>
-      ${(prep.lessons || []).map((lesson) => `<div class="item" style="margin-bottom:8px"><h3>${esc(lesson.title)} ${lesson.done ? '✓' : ''}</h3><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/lessons/${lesson.id}">Mở bài</button></div>`).join('') || '<p>Chưa có bài học.</p>'}
-    </div>
-    <div class="card" style="margin-bottom:14px"><h2>Thử thách</h2>
-      ${(prep.challenges || []).map((challenge) => `<div class="item" style="margin-bottom:8px"><h3>${esc(challenge.title)}</h3><p>${esc(challenge.question)}</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/challenges/${challenge.id}">Làm thử thách</button></div>`).join('') || '<p>Chưa có thử thách.</p>'}
-    </div>
-    <div class="card"><h2>Đề thi thử</h2>
-      ${(prep.mockExams || []).map((mock) => `<div class="item" style="margin-bottom:8px"><h3>${esc(mock.title)}</h3><p>${mock.questions?.length || 0} câu · ${mock.durationMinutes || 30} phút</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/mock-exams/${mock.id}">Làm đề</button></div>`).join('') || '<p>Chưa có đề thi thử.</p>'}
+    <div class="exam-detail-grid">
+      <div>
+        <div class="card" style="margin-bottom:14px"><h2>Tiến độ</h2><p>${mastery.completedLessons || 0}/${mastery.totalLessons || prep.lessons?.length || 0} bài · ${mastery.attempts || 0} lần làm · TB ${mastery.averageScore || 0}%</p>
+          <div class="row"><button class="btn secondary" data-action="exam-share" data-value="${prep.id}">Chia sẻ</button><button class="btn ghost" data-action="nav" data-value="/calendar">Thêm lịch</button></div>
+          ${prep.shareId ? `<p class="small">Link chia sẻ: <code>/share/a/${esc(prep.shareId)}</code></p>` : ''}
+        </div>
+        <div class="card" style="margin-bottom:14px"><h2>Kế hoạch</h2>
+          ${(prep.plan?.days || []).map((day) => `<div style="margin:12px 0"><b>Ngày ${esc(day.day)} · ${esc(day.focus || '')}</b><ul>${(day.tasks || []).map((task) => `<li>${esc(task)}</li>`).join('')}</ul></div>`).join('') || '<p>Chưa có kế hoạch.</p>'}
+          ${prep.plan?.summary ? `<p>${esc(prep.plan.summary)}</p>` : ''}
+        </div>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:14px"><h2>Bài học</h2>
+          ${(prep.lessons || []).map((lesson) => `<div class="item" style="margin-bottom:8px"><h3>${esc(lesson.title)} ${lesson.done ? '✓' : ''}</h3><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/lessons/${lesson.id}">Mở bài</button></div>`).join('') || '<p>Chưa có bài học.</p>'}
+        </div>
+        <div class="card" style="margin-bottom:14px"><h2>Thử thách</h2>
+          ${(prep.challenges || []).map((challenge) => `<div class="item" style="margin-bottom:8px"><h3>${esc(challenge.title)}</h3><p>${esc(challenge.question)}</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/challenges/${challenge.id}">Làm thử thách</button></div>`).join('') || '<p>Chưa có thử thách.</p>'}
+        </div>
+        <div class="card"><h2>Đề thi thử</h2>
+          ${(prep.mockExams || []).map((mock) => `<div class="item" style="margin-bottom:8px"><h3>${esc(mock.title)}</h3><p>${mock.questions?.length || 0} câu · ${mock.durationMinutes || 30} phút</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/mock-exams/${mock.id}">Làm đề</button></div>`).join('') || '<p>Chưa có đề thi thử.</p>'}
+        </div>
+      </div>
     </div>
   </div>`;
 }
@@ -372,8 +381,10 @@ function renderLab() {
   const apps = state.labApps || [];
   return `<div class="pad">
     <h1>Lab</h1><p>Tạo app học tập nhỏ bằng AI, chạy ngay trong iframe sandbox.</p>
-    <div class="list">${apps.map((app) => `<div class="item"><h3>${esc(app.name)}</h3><p>${esc(app.prompt || '')}</p><p class="small">${esc(app.visibility)}</p><button class="btn secondary" style="margin-top:8px" data-action="nav" data-value="/lab/${app.slug}">Mở app</button></div>`).join('') || '<div class="item"><p>Chưa có app nào.</p></div>'}</div>
-    <div class="card" style="margin-top:14px"><h2>Tạo app mới</h2><div class="field"><label>Tên app (tuỳ chọn)</label><input id="lab-name" class="input" placeholder="App đếm ngược học tập" /></div><div class="field"><label>Mô tả</label><textarea id="lab-prompt" class="input" rows="3" placeholder="Tạo app đếm ngược 25 phút, có checklist…"></textarea></div><button class="btn" data-action="lab-create">Tạo bằng AI</button></div>
+    <div class="lab-split">
+      <div class="list">${apps.map((app) => `<div class="item"><h3>${esc(app.name)}</h3><p>${esc(app.prompt || '')}</p><p class="small">${esc(app.visibility)}</p><button class="btn secondary" style="margin-top:8px" data-action="nav" data-value="/lab/${app.slug}">Mở app</button></div>`).join('') || '<div class="item"><p>Chưa có app nào.</p></div>'}</div>
+      <div class="card"><h2>Tạo app mới</h2><div class="field"><label>Tên app (tuỳ chọn)</label><input id="lab-name" class="input" placeholder="App đếm ngược học tập" /></div><div class="field"><label>Mô tả</label><textarea id="lab-prompt" class="input" rows="3" placeholder="Tạo app đếm ngược 25 phút, có checklist…"></textarea></div><button class="btn" data-action="lab-create">Tạo bằng AI</button></div>
+    </div>
     <div class="row" style="margin-top:14px"><button class="btn ghost" data-action="nav" data-value="/calendar">Lịch</button><button class="btn ghost" data-action="nav" data-value="/showcase">Khám phá</button></div>
   </div>`;
 }
@@ -393,8 +404,10 @@ function renderCalendar() {
   const events = state.calendar || [];
   return `<div class="pad">
     <h1>Lịch</h1><p>Lịch học, kỳ thi và nhắc nhở.</p>
-    <div class="list">${events.map((event) => `<div class="item"><h3>${esc(event.title)}</h3><p>${fmtDate(event.event_date)} · ${esc(event.kind || 'study')}</p><button class="btn ghost" data-action="calendar-delete" data-value="${event.id}">Xóa</button></div>`).join('') || '<div class="item"><p>Chưa có sự kiện.</p></div>'}</div>
-    <div class="card" style="margin-top:14px"><h2>Thêm sự kiện</h2><div class="field"><label>Tên</label><input id="calendar-title" class="input" placeholder="Học Toán 45 phút" /></div><div class="field"><label>Ngày</label><input id="calendar-date" class="input" type="date" /></div><div class="field"><label>Loại</label><select id="calendar-kind" class="input"><option value="study">Học</option><option value="exam">Thi</option><option value="review">Ôn lại</option></select></div><button class="btn" data-action="calendar-add">Thêm</button></div>
+    <div class="desktop-grid">
+      <div class="list">${events.map((event) => `<div class="item"><h3>${esc(event.title)}</h3><p>${fmtDate(event.event_date)} · ${esc(event.kind || 'study')}</p><button class="btn ghost" data-action="calendar-delete" data-value="${event.id}">Xóa</button></div>`).join('') || '<div class="item"><p>Chưa có sự kiện.</p></div>'}</div>
+      <div class="card"><h2>Thêm sự kiện</h2><div class="field"><label>Tên</label><input id="calendar-title" class="input" placeholder="Học Toán 45 phút" /></div><div class="field"><label>Ngày</label><input id="calendar-date" class="input" type="date" /></div><div class="field"><label>Loại</label><select id="calendar-kind" class="input"><option value="study">Học</option><option value="exam">Thi</option><option value="review">Ôn lại</option></select></div><button class="btn" data-action="calendar-add">Thêm</button></div>
+    </div>
   </div>`;
 }
 
@@ -454,8 +467,10 @@ function renderHavsStats() {
       <div class="stat"><b>${d.preps || 0}</b><span>Đề ôn tập</span></div>
       <div class="stat"><b>${d.attempts || 0}</b><span>Lần làm bài</span></div>
     </div>
-    <div class="card" style="margin-top:14px"><h2>Lối tắt</h2><div class="row"><button class="btn secondary" data-action="nav" data-value="/exam-preps">Ôn thi</button><button class="btn secondary" data-action="nav" data-value="/lab">Lab</button><button class="btn secondary" data-action="nav" data-value="/calendar">Lịch</button><button class="btn secondary" data-action="nav" data-value="/showcase">Khám phá</button></div></div>
-    <div class="card" style="margin-top:14px"><h2>Sắp tới</h2>${(d.events || []).length ? d.events.map((event) => `<div class="item" style="margin-bottom:8px"><h3>${esc(event.title)}</h3><p>${fmtDate(event.event_date)}</p></div>`).join('') : '<p>Chưa có sự kiện.</p>'}</div>
+    <div class="desktop-grid" style="margin-top:14px">
+      <div class="card"><h2>Lối tắt</h2><div class="row"><button class="btn secondary" data-action="nav" data-value="/exam-preps">Ôn thi</button><button class="btn secondary" data-action="nav" data-value="/lab">Lab</button><button class="btn secondary" data-action="nav" data-value="/calendar">Lịch</button><button class="btn secondary" data-action="nav" data-value="/showcase">Khám phá</button></div></div>
+      <div class="card"><h2>Sắp tới</h2>${(d.events || []).length ? d.events.map((event) => `<div class="item" style="margin-bottom:8px"><h3>${esc(event.title)}</h3><p>${fmtDate(event.event_date)}</p></div>`).join('') : '<p>Chưa có sự kiện.</p>'}</div>
+    </div>
     ${d.role === 'parent' ? `<div class="card" style="margin-top:14px"><h2>Tài khoản con</h2>${(d.children || []).map((link) => `<div class="item" style="margin-bottom:8px"><h3>${esc(link.child?.name || link.email)}</h3><p>${link.status === 'linked' ? `${link.child.chats} chat · ${link.child.preps} đề · ${link.child.usageMinutes} phút` : 'Đang chờ đăng ký'}</p>${link.child ? `<button class="btn secondary" data-action="nav" data-value="/child/${link.child.id}">Xem</button>` : ''}</div>`).join('') || '<p>Chưa liên kết.</p>'}</div>` : ''}
     ${d.role === 'teacher' ? `<div class="card" style="margin-top:14px"><h2>Lớp học</h2><p>${esc(d.school || 'Chưa cập nhật trường')} · ${esc(d.className || 'Chưa cập nhật lớp')}</p></div>` : ''}
   </div>`;
@@ -464,28 +479,44 @@ function renderHavsStats() {
 function renderHavsSettings() {
   const p = state.profile || {};
   const settings = state.settings || p.settings || {};
+  const plat = window.havsPlatform;
+  const deviceLabel = plat?.deviceLabel ? plat.deviceLabel() : 'Web Browser';
+  const pushLabel = plat?.pushGranted ? 'Đã bật' : 'Chưa cấp quyền';
+  const canInstall = plat ? (!plat.isNativeAndroid && !plat.isStandalone) : true;
   return `<div class="pad">
     <h1>Cài đặt</h1>
-    <div class="card" style="margin-bottom:14px"><div class="row"><div class="avatar">${esc((p.name || 'H')[0].toUpperCase())}</div><div class="grow"><b>${esc(p.name || 'Học sinh')}</b><p style="margin:2px 0 0">${esc(state.user?.email || '')}</p></div></div></div>
-    <div class="card" style="margin-bottom:14px"><h2>Hồ sơ</h2>
-      <div class="field"><label>Tên hiển thị</label><input id="set-name" class="input" value="${esc(p.name || '')}" /></div>
-      <div class="field"><label>Giọng nói</label><select id="set-voice" class="input">${(state.voices || []).map((v) => `<option value="${v.id}" ${p.voice === v.id ? 'selected' : ''}>${esc(v.name)} (${esc(v.locale)})</option>`).join('')}<option value="none" ${p.voice === 'none' ? 'selected' : ''}>Không dùng</option></select></div>
-      <div class="field"><label>Giờ học quen thuộc</label><input id="set-study-time" class="input" type="time" value="${esc(p.studyTime || '')}" /></div>
-      <div class="field"><label>Sở thích</label><input id="set-interests" class="input" value="${esc((p.interests || []).join(', '))}" placeholder="toán, vật lý" /></div>
-      <button class="btn secondary" data-action="settings-save">Lưu hồ sơ</button>
-    </div>
-    <div class="card" style="margin-bottom:14px"><h2>Giao diện</h2>
-      <div class="field"><label>Theme</label><select id="set-theme" class="input"><option value="dark" ${p.theme === 'dark' ? 'selected' : ''}>Tối</option><option value="light" ${p.theme === 'light' ? 'selected' : ''}>Sáng</option></select></div>
-      <div class="field"><label><input id="set-notifications" type="checkbox" ${p.notifications !== false ? 'checked' : ''}/> Thông báo</label></div>
-      <div class="field"><label><input id="set-dyslexia" type="checkbox" ${settings.dyslexia ? 'checked' : ''}/> Chế độ dyslexia</label></div>
-      <div class="field"><label><input id="set-focus" type="checkbox" ${settings.focusMode ? 'checked' : ''}/> Chế độ tập trung</label></div>
-      <button class="btn secondary" data-action="settings-save">Lưu cài đặt</button>
+    <div class="card" style="margin-bottom:14px"><div class="row"><div class="avatar">${esc((p.name || 'H')[0].toUpperCase())}</div><div class="grow"><b>${esc(p.name || 'Học sinh')}</b><p style="margin:2px 0 0">${esc(state.user?.email || '')}</p></div><span class="badge">${esc(deviceLabel)}</span></div></div>
+    <div class="desktop-grid">
+      <div class="card" style="margin-bottom:14px"><h2>Hồ sơ</h2>
+        <div class="field"><label>Tên hiển thị</label><input id="set-name" class="input" value="${esc(p.name || '')}" /></div>
+        <div class="field"><label>Giọng nói</label><select id="set-voice" class="input">${(state.voices || []).map((v) => `<option value="${v.id}" ${p.voice === v.id ? 'selected' : ''}>${esc(v.name)} (${esc(v.locale)})</option>`).join('')}<option value="none" ${p.voice === 'none' ? 'selected' : ''}>Không dùng</option></select></div>
+        <div class="field"><label>Giờ học quen thuộc</label><input id="set-study-time" class="input" type="time" value="${esc(p.studyTime || '')}" /></div>
+        <div class="field"><label>Sở thích</label><input id="set-interests" class="input" value="${esc((p.interests || []).join(', '))}" placeholder="toán, vật lý" /></div>
+        <button class="btn secondary" data-action="settings-save">Lưu hồ sơ</button>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:14px"><h2>Giao diện</h2>
+          <div class="field"><label>Theme</label><select id="set-theme" class="input"><option value="dark" ${p.theme === 'dark' ? 'selected' : ''}>Tối</option><option value="light" ${p.theme === 'light' ? 'selected' : ''}>Sáng</option></select></div>
+          <div class="field"><label><input id="set-notifications" type="checkbox" ${p.notifications !== false ? 'checked' : ''}/> Thông báo</label></div>
+          <div class="field"><label><input id="set-dyslexia" type="checkbox" ${settings.dyslexia ? 'checked' : ''}/> Chế độ dyslexia</label></div>
+          <div class="field"><label><input id="set-focus" type="checkbox" ${settings.focusMode ? 'checked' : ''}/> Chế độ tập trung</label></div>
+          <button class="btn secondary" data-action="settings-save">Lưu cài đặt</button>
+        </div>
+        <div class="card" style="margin-bottom:14px"><h2>Thiết bị & Đa nền tảng</h2>
+          <p class="small">Môi trường hiện tại: <b>${esc(deviceLabel)}</b> · Thông báo đẩy: <b>${esc(pushLabel)}</b></p>
+          <p class="small">Đồng bộ thời gian thực qua SSE giữa PC, Mac, iPad, iPhone và Android.</p>
+          <div class="row" style="margin-top:10px">
+            ${canInstall ? '<button class="btn secondary" data-action="install-app">📲 Cài ứng dụng (PWA)</button>' : ''}
+            <button class="btn ghost" data-action="request-push">🔔 Cấp quyền thông báo</button>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="card" style="margin-bottom:14px"><h2>Khám phá</h2><div class="row"><button class="btn ghost" data-action="nav" data-value="/lab">Lab</button><button class="btn ghost" data-action="nav" data-value="/calendar">Lịch</button><button class="btn ghost" data-action="nav" data-value="/showcase">Showcase</button><button class="btn ghost" data-action="nav" data-value="/teachers">Giáo viên</button></div></div>
     ${p.role === 'parent' ? `<div class="card" style="margin-bottom:14px"><h2>Tài khoản con</h2><div class="field"><label>Email con</label><input id="child-email" class="input" type="email" placeholder="con@example.com" /></div><button class="btn secondary" data-action="add-child">Liên kết tài khoản</button><div class="list" style="margin-top:10px">${(state.dashboard?.children || []).map((link) => `<div class="item"><h3>${esc(link.child?.name || link.email)}</h3><p>${link.status === 'linked' ? `${link.child.chats} chat · ${link.child.preps} đề` : 'Đang chờ đăng ký'}</p></div>`).join('') || '<p>Chưa liên kết.</p>'}</div></div>` : ''}
-    ${p.role === 'teacher' ? `<div class="card" style="margin-bottom:14px"><h2>Lớp học</h2><div class="field"><label>Trường</label><input id="set-school" class="input" value="${esc(p.school || '')}" /></div><div class="field"><label>Lớp</label><input id="set-class" class="input" value="${esc(p.className || '')}" /></div><button class="btn secondary" data-action="settings-save">Lưu trường/lớp</button></div>` : ''}
+    ${p.role === 'teacher' ? `<div class="card" style="margin-top:14px;margin-bottom:14px"><h2>Lớp học</h2><div class="field"><label>Trường</label><input id="set-school" class="input" value="${esc(p.school || '')}" /></div><div class="field"><label>Lớp</label><input id="set-class" class="input" value="${esc(p.className || '')}" /></div><button class="btn secondary" data-action="settings-save">Lưu trường/lớp</button></div>` : ''}
     <button class="btn danger" data-action="logout">Đăng xuất</button>
-    <p class="small center-text" style="margin-top:18px">havsAI · backend Node + SQLite</p>
+    <p class="small center-text" style="margin-top:18px">havsAI · Web / PWA / Android Đa nền tảng</p>
   </div>`;
 }
 

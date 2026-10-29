@@ -29,8 +29,206 @@ const state = {
   realtime: null, live: false, prepPlan: null,
   examPreps: [], exam: null, examMode: 'all', examQuery: '', examCatalog: [], examShared: [], curriculum: {}, past: null,
   attempt: null, labApps: [], labApp: null, calendar: [], showcase: null, teacher: null, teacherPreps: [], child: null, share: null, settings: {},
+  chatDrawerOpen: false, chatFilter: '', dragOver: false,
+  installPrompt: null, nativePort: null, nativeDevice: null, nativePush: null,
   onboarding: { step: 0, role: 'student', name: '', age: '', country: 'Việt Nam', subjects: ['math'], voice: 'neil', goal: 'general', examDate: '', childEmail: '', school: '', className: '' }
 };
+
+const pendingNativeCallbacks = new Map();
+
+const havsPlatform = {
+  get runtime() {
+    if (state.nativePort) return 'android-twa';
+    try {
+      if (window.matchMedia?.('(display-mode: standalone)').matches || window.navigator?.standalone === true) return 'pwa';
+    } catch {}
+    return 'web';
+  },
+  runtimeLabel() {
+    const rt = this.runtime;
+    if (rt === 'android-twa') return 'Android App (TWA)';
+    if (rt === 'pwa') return 'Ứng dụng đã cài (PWA)';
+    return 'Trình duyệt Web';
+  },
+  deviceSummary() {
+    if (state.nativeDevice) {
+      const d = state.nativeDevice;
+      return [d.manufacturer, d.model, d.osVersion ? `Android ${d.osVersion}` : ''].filter(Boolean).join(' · ') || 'Android';
+    }
+    const ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod/i.test(ua)) return 'iOS / iPadOS';
+    if (/Android/i.test(ua)) return 'Android Browser';
+    if (/Mac OS X|Macintosh/i.test(ua)) return 'macOS Desktop';
+    if (/Windows/i.test(ua)) return 'Windows Desktop';
+    if (/Linux/i.test(ua)) return 'Linux Desktop';
+    return navigator.platform || 'Web Browser';
+  },
+  pushStatusLabel() {
+    if (state.nativePush && typeof state.nativePush.enabled === 'boolean') {
+      return state.nativePush.enabled ? 'Đã bật (Android)' : 'Đã tắt (Android)';
+    }
+    if (typeof Notification !== 'undefined') {
+      if (Notification.permission === 'granted') return 'Đã bật (Web)';
+      if (Notification.permission === 'denied') return 'Bị chặn trên trình duyệt';
+      return 'Chưa bật';
+    }
+    return 'Không hỗ trợ trên trình duyệt này';
+  },
+  send(type, payload = {}) {
+    if (!state.nativePort) return Promise.resolve(null);
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        pendingNativeCallbacks.delete(id);
+        resolve(null);
+      }, 4000);
+      pendingNativeCallbacks.set(id, (data) => {
+        clearTimeout(timer);
+        resolve(data);
+      });
+      try {
+        state.nativePort.postMessage(JSON.stringify({ id, type, payload }));
+      } catch {
+        clearTimeout(timer);
+        pendingNativeCallbacks.delete(id);
+        resolve(null);
+      }
+    });
+  },
+  handleNativeMessage(raw) {
+    let msg = raw;
+    if (typeof raw === 'string') {
+      try { msg = JSON.parse(raw); } catch { return; }
+    }
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.id && pendingNativeCallbacks.has(msg.id)) {
+      const cb = pendingNativeCallbacks.get(msg.id);
+      pendingNativeCallbacks.delete(msg.id);
+      cb(msg.data || msg);
+    }
+    if (msg.type === 'havs-push-permission-status' && msg.data) {
+      state.nativePush = { ...(state.nativePush || {}), ...msg.data };
+      render();
+    }
+  },
+  identify(user, profile) {
+    if (!user) return;
+    this.send('havs-identify', {
+      userId: String(user.id || ''),
+      email: String(user.email || ''),
+      name: String(profile?.name || '')
+    });
+  },
+  setTheme(theme) {
+    const mode = theme === 'light' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = mode;
+    this.send('havs-set-theme', { theme: mode });
+  },
+  syncRoute(path) {
+    this.send('havs_route', { path: String(path || '/') });
+  },
+  track(event, props = {}) {
+    if (state.nativePort) this.send('havs-track-event', { event, props });
+    fetch('/api/events', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: event, props: { ...props, runtime: this.runtime } })
+    }).catch(() => {});
+  },
+  async requestPush() {
+    if (state.nativePort) {
+      await this.send('havs-request-push-permission', {});
+      const push = await this.send('havs-push-state', {});
+      if (push) state.nativePush = push;
+      toast('Đã gửi yêu cầu thông báo tới Android');
+      render();
+      return;
+    }
+    if (typeof Notification === 'undefined') {
+      toast('Trình duyệt hiện tại chưa hỗ trợ Web Notifications');
+      return;
+    }
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        toast('Đã bật thông báo trên trình duyệt');
+        try { new Notification('havsAI', { body: 'Thông báo học tập đã sẵn sàng!', icon: '/icon.svg' }); } catch {}
+      } else {
+        toast('Quyền thông báo chưa được cấp');
+      }
+      render();
+    } catch {
+      toast('Không yêu cầu được quyền thông báo');
+    }
+  },
+  async installApp() {
+    if (this.runtime === 'android-twa' || this.runtime === 'pwa') {
+      toast('havsAI đang chạy ở chế độ ứng dụng');
+      return;
+    }
+    if (state.installPrompt) {
+      try {
+        state.installPrompt.prompt();
+        const choice = await state.installPrompt.userChoice;
+        if (choice?.outcome === 'accepted') {
+          state.installPrompt = null;
+          toast('Đã cài đặt ứng dụng havsAI');
+        }
+        render();
+      } catch {}
+      return;
+    }
+    const ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod/i.test(ua)) {
+      toast('Trên iPhone/iPad: bấm nút Chia sẻ (⬆) → "Thêm vào MH chính"');
+    } else {
+      toast('Trên máy tính/Android: bấm biểu tượng Cài đặt (⊕) trên thanh địa chỉ trình duyệt');
+    }
+  }
+};
+window.havsPlatform = havsPlatform;
+
+window.addEventListener('message', (event) => {
+  const candidate = event.ports && event.ports[0];
+  let parsed = null;
+  if (typeof event.data === 'string') {
+    try { parsed = JSON.parse(event.data); } catch {}
+  } else if (event.data && typeof event.data === 'object') {
+    parsed = event.data;
+  }
+  if (candidate || parsed?.type === 'havs-native-ready') {
+    if (candidate) {
+      state.nativePort = candidate;
+      candidate.onmessage = (msgEvent) => havsPlatform.handleNativeMessage(msgEvent.data);
+    }
+    havsPlatform.send('havs-device-info', {}).then((info) => { if (info) { state.nativeDevice = info; render(); } });
+    havsPlatform.send('havs-push-state', {}).then((push) => { if (push) { state.nativePush = push; render(); } });
+    if (state.user) havsPlatform.identify(state.user, state.profile);
+    if (state.profile?.theme) havsPlatform.setTheme(state.profile.theme);
+    havsPlatform.syncRoute(location.pathname + location.search);
+    return;
+  }
+  if (parsed) havsPlatform.handleNativeMessage(parsed);
+});
+
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  state.installPrompt = event;
+  if (state.view === 'main') render();
+});
+
+window.addEventListener('appinstalled', () => {
+  state.installPrompt = null;
+  toast('Đã cài đặt havsAI vào thiết bị');
+  if (state.view === 'main') render();
+});
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
 
 const app = document.getElementById('app');
 const toastEl = document.getElementById('toast');
@@ -145,54 +343,162 @@ function renderOnboarding() {
   </div>`;
 }
 
+function renderSideNav(activeNav, p) {
+  const navItems = [
+    ['chat', 'Trò chuyện', '💬', '/'],
+    ['prep', 'Ôn thi', '📚', '/exam-preps'],
+    ['stats', 'Tiến độ', '📈', '/dashboard'],
+    ['lab', 'AI Lab', '🧪', '/lab'],
+    ['calendar', 'Lịch học', '📅', '/calendar'],
+    ['showcase', 'Khám phá', '✨', '/showcase'],
+    ['settings', 'Cài đặt', '⚙️', '/settings']
+  ];
+  const roleLabel = p.role === 'teacher' ? 'Giáo viên' : p.role === 'parent' ? 'Phụ huynh' : 'Học sinh';
+  const isLight = (p.theme || 'dark') === 'light';
+  return `<aside class="side-nav" aria-label="Điều hướng chính">
+    <div class="side-brand">
+      <div class="logo" data-action="nav" data-value="/" style="cursor:pointer">havs<span>AI</span></div>
+      <span class="badge">BETA</span>
+      <span class="live ${state.live ? 'on' : ''}">${state.live ? '● live' : '○ offline'}</span>
+    </div>
+    <button class="btn side-new-chat" data-action="new-chat" title="Cuộc trò chuyện mới (Ctrl+K)">＋ Cuộc trò chuyện mới</button>
+    <nav class="side-links">
+      ${navItems.map(([id, label, icon, href]) =>
+        `<button class="side-link ${activeNav === id ? 'active' : ''}" data-action="nav" data-value="${href}">
+          <span class="ico">${icon}</span><span>${label}</span>
+        </button>`).join('')}
+    </nav>
+    <div class="side-footer">
+      ${havsPlatform.runtime === 'web' ? `<button class="btn secondary side-install-btn" data-action="install-app">📲 Cài đặt ứng dụng</button>` : ''}
+      <div class="side-profile">
+        <div class="avatar" data-action="go-profile" style="cursor:pointer">${esc((p.name || 'H')[0].toUpperCase())}</div>
+        <div class="grow side-profile-meta" data-action="go-profile" style="cursor:pointer">
+          <b>${esc(p.name || 'Học sinh')}</b>
+          <span class="small muted">${roleLabel} · ${esc(havsPlatform.runtimeLabel())}</span>
+        </div>
+        <button class="icon-btn" data-action="quick-theme" title="Đổi giao diện Sáng/Tối">${isLight ? '🌙' : '☀️'}</button>
+      </div>
+    </div>
+  </aside>`;
+}
+
+function renderChatSidebar() {
+  const filter = (state.chatFilter || '').trim().toLowerCase();
+  const list = (state.chats || []).filter((c) => !filter || `${c.title || ''} ${subjectName(c.subject)}`.toLowerCase().includes(filter));
+  return `<aside class="chat-sidebar ${state.chatDrawerOpen ? 'open' : ''}" aria-label="Lịch sử trò chuyện">
+    <div class="chat-sidebar-head">
+      <b>Lịch sử hội thoại</b>
+      <div class="row">
+        <button class="icon-btn" data-action="new-chat" title="Cuộc trò chuyện mới">＋</button>
+        <button class="icon-btn mobile-only" data-action="close-chat-drawer" title="Đóng">✕</button>
+      </div>
+    </div>
+    <div class="chat-sidebar-search">
+      <input id="chat-history-filter" class="input" value="${esc(state.chatFilter)}" placeholder="Tìm hội thoại…" autocomplete="off" />
+    </div>
+    <div class="chat-history-list">
+      ${list.length ? list.map((chat) => {
+        const active = state.chatId === chat.id;
+        return `<div class="chat-history-item ${active ? 'active' : ''}">
+          <button class="chat-history-open" data-action="open-chat" data-value="${esc(chat.id)}">
+            <span class="chat-history-ico">${SUBJECT_META[chat.subject] || '💬'}</span>
+            <span class="chat-history-text">
+              <b>${esc(chat.title || 'Cuộc trò chuyện')}</b>
+              <small>${esc(subjectName(chat.subject || 'math'))}</small>
+            </span>
+          </button>
+          <div class="chat-history-actions">
+            <button class="chat-act-btn" data-action="rename-chat" data-value="${esc(chat.id)}" title="Đổi tên">✎</button>
+            <button class="chat-act-btn danger" data-action="delete-chat" data-value="${esc(chat.id)}" title="Xóa">🗑</button>
+          </div>
+        </div>`;
+      }).join('') : `<div class="chat-history-empty"><p class="small">Chưa có hội thoại nào. Hãy đặt câu hỏi đầu tiên!</p></div>`}
+    </div>
+  </aside>
+  ${state.chatDrawerOpen ? '<div class="drawer-backdrop" data-action="close-chat-drawer"></div>' : ''}`;
+}
+
 function renderMain() {
   const p = state.profile || {};
   const route = state.route || { name: 'chat', params: {} };
   const feature = renderFeaturePage(route);
-  const tab = route.name === 'chat' ? 'chat'
-    : route.name.startsWith('exam') ? 'prep'
+  const activeNav = route.name === 'chat' ? 'chat'
+    : route.name.startsWith('exam') || route.name === 'lesson' || route.name === 'challenges' || route.name === 'challenge' || route.name === 'mock' || route.name === 'attempt' ? 'prep'
       : route.name === 'dashboard' || route.name === 'child' ? 'stats'
-        : route.name === 'settings' ? 'settings' : '';
+        : route.name === 'lab' || route.name === 'lab-app' ? 'lab'
+          : route.name === 'calendar' ? 'calendar'
+            : route.name === 'showcase' || route.name === 'teacher' || route.name === 'share' ? 'showcase'
+              : route.name === 'settings' || route.name === 'profile' ? 'settings' : '';
+  const tab = ['chat', 'prep', 'stats', 'settings'].includes(activeNav) ? activeNav : '';
   state.tab = tab || 'chat';
   const fallback = tab === 'chat' ? renderChat() : tab === 'prep' ? renderPrep() : tab === 'stats' ? renderStats() : renderSettings();
-  return `<div class="screen main-screen">
-    <div class="header"><div class="inner"><div class="logo">havs<span>AI</span></div><span class="badge">BETA</span><span id="live" class="live ${state.live ? 'on' : ''}">${state.live ? '● live' : '○ offline'}</span><div class="grow"></div>
-      <div class="avatar" data-action="go-profile">${esc((p.name || 'H')[0].toUpperCase())}</div></div></div>
-    <div class="main">${feature || fallback}</div>
-    <div class="bottom-nav">
-      ${[['chat', 'Trò chuyện', '💬', '/'], ['prep', 'Ôn thi', '📚', '/exam-preps'], ['stats', 'Tiến độ', '📈', '/dashboard'], ['settings', 'Cài đặt', '⚙️', '/settings']].map(([id, label, icon, href]) =>
-        `<button class="nav-item ${tab === id ? 'active' : ''}" data-action="nav" data-value="${href}"><span class="ico">${icon}</span>${label}</button>`).join('')}
+  const isChat = route.name === 'chat';
+  return `<div class="screen main-screen layout-shell ${isChat ? 'has-chat-sidebar' : ''}">
+    ${renderSideNav(activeNav || 'chat', p)}
+    ${isChat ? renderChatSidebar() : ''}
+    <div class="workspace-col">
+      <div class="header"><div class="inner">
+        ${isChat ? `<button class="icon-btn chat-drawer-btn" data-action="toggle-chat-drawer" title="Lịch sử hội thoại">☰</button>` : ''}
+        <div class="logo" data-action="nav" data-value="/" style="cursor:pointer">havs<span>AI</span></div>
+        <span class="badge">BETA</span>
+        <span id="live" class="live ${state.live ? 'on' : ''}">${state.live ? '● live' : '○ offline'}</span>
+        <div class="grow"></div>
+        ${isChat ? `<button class="btn ghost header-new-chat" data-action="new-chat">＋ Mới</button>` : ''}
+        <div class="avatar" data-action="go-profile">${esc((p.name || 'H')[0].toUpperCase())}</div>
+      </div></div>
+      <div class="main">${feature || fallback}</div>
+      <div class="bottom-nav">
+        ${[['chat', 'Trò chuyện', '💬', '/'], ['prep', 'Ôn thi', '📚', '/exam-preps'], ['stats', 'Tiến độ', '📈', '/dashboard'], ['settings', 'Cài đặt', '⚙️', '/settings']].map(([id, label, icon, href]) =>
+          `<button class="nav-item ${tab === id ? 'active' : ''}" data-action="nav" data-value="${href}"><span class="ico">${icon}</span>${label}</button>`).join('')}
+      </div>
     </div>
   </div>`;
 }
 
 function renderChat() {
   const prompts = PROMPTS[state.subject] || PROMPTS.default;
-  return `<div class="subject-bar">${SUBJECTS.map(([id, label]) => `<button class="chip ${state.subject === id ? 'active' : ''}" data-action="subject-tab" data-value="${id}">${label}</button>`).join('')}</div>
+  const activeChat = (state.chats || []).find((c) => c.id === state.chatId);
+  return `<div class="chat-stage ${state.dragOver ? 'drag-over' : ''}">
+    <div class="subject-bar">${SUBJECTS.map(([id, label]) => `<button class="chip ${state.subject === id ? 'active' : ''}" data-action="subject-tab" data-value="${id}">${SUBJECT_META[id] || ''} ${label}</button>`).join('')}</div>
+    ${activeChat ? `<div class="chat-active-bar">
+      <span class="small muted">${SUBJECT_META[activeChat.subject] || '💬'} <b>${esc(activeChat.title || 'Cuộc trò chuyện')}</b></span>
+      <div class="grow"></div>
+      <button class="btn ghost small" data-action="rename-chat" data-value="${esc(activeChat.id)}">✎ Đổi tên</button>
+      <button class="btn ghost small" data-action="new-chat">＋ Chat mới</button>
+    </div>` : ''}
     <div class="chat-wrap" id="chat-wrap">
-      ${state.messages.length === 0 ? `<div class="center-text" style="padding:30px 10px">
-        <div class="logo" style="font-size:24px">havs<span>AI</span></div>
-        <h1 style="font-size:22px;margin-top:14px">Hỏi mình bất cứ điều gì</h1>
-        <p>Môn ${esc(subjectName(state.subject))} · Trả lời từng bước, có ví dụ.</p>
+      ${state.messages.length === 0 ? `<div class="center-text chat-welcome">
+        <div class="logo" style="font-size:28px">havs<span>AI</span></div>
+        <h1 style="font-size:24px;margin-top:14px">Hỏi mình bất cứ điều gì</h1>
+        <p>Môn ${esc(subjectName(state.subject))} · Giải thích từng bước, đọc ảnh/PDF bằng DeepSeek Vision, vẽ tay hoặc tra cứu web.</p>
+        <div class="welcome-grid">
+          ${prompts.map((text) => `<button class="welcome-card" data-action="prompt" data-value="${esc(text)}">
+            <span>${SUBJECT_META[state.subject] || '✨'}</span>
+            <b>${esc(text)}</b>
+          </button>`).join('')}
+        </div>
+        <p class="small muted desktop-hint">Mẹo trên máy tính: kéo-thả hoặc dán (Ctrl+V) ảnh/PDF trực tiếp vào khung chat · Nhấn <code>/</code> để nhập nhanh.</p>
       </div>` : state.messages.map(renderMessage).join('')}
     </div>
     <div class="suggestions">${prompts.map((text) => `<button data-action="prompt" data-value="${esc(text)}">${esc(text)}</button>`).join('')}</div>
-    <div id="image-preview" class="${state.uploadId ? '' : 'hidden'}" style="padding:8px 12px">
+    <div id="image-preview" class="${state.uploadId ? 'attach-bar' : 'hidden'}" style="padding:8px 12px">
       ${state.uploadMime?.startsWith('image/') && state.imageUrl
         ? `<img src="${esc(state.imageUrl)}" style="max-height:80px;border-radius:10px" />`
         : state.uploadId
           ? `<span class="tool">📄 ${esc(state.uploadName)}${state.uploadPages ? ` · ${state.uploadPages} trang` : ''}</span>`
           : ''}
+      ${state.uploadId ? `<button class="btn ghost small" data-action="clear-upload">✕ Bỏ đính kèm</button>` : ''}
     </div>
     <div class="composer">
       <input id="file-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" class="hidden" />
-      <button class="icon-btn" data-action="open-canvas" title="Vẽ">✎</button>
-      <button class="icon-btn" data-action="pick-file" title="Đính kèm">＋</button>
-      <input id="chat-input" class="input" value="${esc(state.draft)}" placeholder="Nhập câu hỏi…" autocomplete="off" />
+      <button class="icon-btn" data-action="open-canvas" title="Vẽ tay">✎</button>
+      <button class="icon-btn" data-action="pick-file" title="Đính kèm ảnh hoặc PDF">＋</button>
+      <input id="chat-input" class="input" value="${esc(state.draft)}" placeholder="Nhập câu hỏi hoặc dán ảnh (Ctrl+V)…" autocomplete="off" />
       <button class="icon-btn ${state.listening ? 'send' : ''}" data-action="voice-input" title="Nhập bằng giọng nói">${state.listening ? '◉' : '🎤'}</button>
       <button class="icon-btn ${state.voiceOn ? 'send' : ''}" data-action="toggle-voice" title="Đọc câu trả lời">${state.voiceOn ? '🔊' : '🔇'}</button>
-      <button class="icon-btn send" data-action="send" ${state.streaming ? 'disabled' : ''}>➤</button>
-    </div>`;
+      <button class="icon-btn send" data-action="send" ${state.streaming ? 'disabled' : ''} title="Gửi">➤</button>
+    </div>
+  </div>`;
 }
 
 function renderTex(tex, display) {
@@ -429,7 +735,38 @@ function connectRealtime() {
       let payload;
       try { payload = JSON.parse(event.data); } catch { return; }
       if (payload.type === 'ping' || payload.type === 'connected') return;
-      if (payload.event === 'chat.message') refreshDashboard().catch(() => {});
+      if (payload.event === 'chat.message') {
+        refreshDashboard().catch(() => {});
+        refreshChats().then(() => {
+          if (state.chatId && payload.chatId === state.chatId && !state.streaming) {
+            api(`/api/chats/${state.chatId}/messages`).then((data) => {
+              state.messages = data.messages || [];
+              if (state.tab === 'chat') render();
+            }).catch(() => {});
+          } else if (state.tab === 'chat') {
+            render();
+          }
+        }).catch(() => {});
+      }
+      if (payload.event === 'chat.updated' || payload.event === 'chat.deleted') {
+        refreshChats().then(() => {
+          if (payload.event === 'chat.deleted' && payload.chatId && state.chatId === payload.chatId) {
+            state.chatId = null;
+            state.messages = [];
+          }
+          if (state.tab === 'chat') render();
+        }).catch(() => {});
+      }
+      if (payload.event === 'profile.updated') {
+        api('/api/profile').then((data) => {
+          if (data?.profile) {
+            state.profile = data.profile;
+            havsPlatform.setTheme(state.profile.theme || 'dark');
+            if (typeof applyPreferences === 'function') applyPreferences();
+            render();
+          }
+        }).catch(() => {});
+      }
       if (payload.event === 'prep.updated') loadPreps().then(() => { if (state.tab === 'prep') render(); }).catch(() => {});
       if (payload.event === 'parent.updated') refreshDashboard().then(() => { if (state.tab === 'stats' || state.tab === 'settings') render(); }).catch(() => {});
     };
@@ -516,6 +853,8 @@ async function boot() {
     }
     state.user = session.user;
     state.profile = session.profile;
+    havsPlatform.identify(state.user, state.profile);
+    havsPlatform.setTheme(state.profile?.theme || 'dark');
     if (!session.profile?.onboardingDone) {
       state.onboarding = {
         ...state.onboarding,
@@ -573,9 +912,11 @@ async function refreshDashboard() {
 }
 
 async function openChat(chat) {
-  state.chatId = chat.id;
-  state.subject = chat.subject || 'math';
-  const data = await api(`/api/chats/${chat.id}/messages`);
+  const found = state.chats.find((c) => c.id === chat.id) || chat;
+  state.chatId = found.id;
+  state.subject = found.subject || state.subject || 'math';
+  state.chatDrawerOpen = false;
+  const data = await api(`/api/chats/${found.id}/messages`);
   state.messages = data.messages || [];
   state.tab = 'chat';
   state.route = { name: 'chat', params: {} };
@@ -877,6 +1218,8 @@ document.addEventListener('click', async (event) => {
     try {
       const data = await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ email, code }) });
       state.user = data.user; state.profile = data.profile;
+      havsPlatform.identify(state.user, state.profile);
+      havsPlatform.setTheme(state.profile?.theme || 'dark');
       if (!data.profile?.onboardingDone) {
         state.view = 'onboarding';
         history.replaceState({}, '', '/onboarding');
@@ -1075,10 +1418,95 @@ document.addEventListener('click', async (event) => {
     } catch (error) { toast(error.message); }
   } else if (action === 'open-chat') {
     await openChat({ id: value });
+  } else if (action === 'new-chat') {
+    state.chatId = null;
+    state.messages = [];
+    state.chatDrawerOpen = false;
+    state.tab = 'chat';
+    state.route = { name: 'chat', params: {} };
+    if (location.pathname !== '/') history.pushState({}, '', '/');
+    render();
+    document.getElementById('chat-input')?.focus();
+  } else if (action === 'rename-chat') {
+    event.stopPropagation();
+    const current = state.chats.find((c) => c.id === value);
+    const nextTitle = window.prompt('Đổi tên đoạn chat:', current?.title || '');
+    if (!nextTitle || !nextTitle.trim()) return;
+    try {
+      await api(`/api/chats/${value}`, { method: 'PATCH', body: JSON.stringify({ title: nextTitle.trim() }) });
+      await refreshChats();
+      render();
+      toast('Đã đổi tên đoạn chat');
+    } catch (error) { toast(error.message); }
+  } else if (action === 'delete-chat') {
+    event.stopPropagation();
+    try {
+      await api(`/api/chats/${value}`, { method: 'DELETE' });
+      if (state.chatId === value) {
+        state.chatId = null;
+        state.messages = [];
+      }
+      await refreshChats();
+      await refreshDashboard();
+      render();
+      toast('Đã xóa đoạn chat');
+    } catch (error) { toast(error.message); }
+  } else if (action === 'toggle-chat-drawer') {
+    state.chatDrawerOpen = !state.chatDrawerOpen;
+    render();
+  } else if (action === 'close-chat-drawer') {
+    state.chatDrawerOpen = false;
+    render();
+  } else if (action === 'clear-upload') {
+    state.uploadId = null;
+    state.imageUrl = null;
+    state.uploadName = '';
+    state.uploadPages = 0;
+    state.uploadMime = '';
+    render();
+  } else if (action === 'install-app') {
+    await havsPlatform.installApp();
+  } else if (action === 'request-push') {
+    await havsPlatform.requestPush();
+  } else if (action === 'quick-theme') {
+    const nextTheme = state.profile?.theme === 'light' ? 'dark' : 'light';
+    try {
+      const data = await api('/api/profile', { method: 'PATCH', body: JSON.stringify({ theme: nextTheme }) });
+      state.profile = data.profile;
+      havsPlatform.setTheme(nextTheme);
+      if (typeof applyPreferences === 'function') applyPreferences();
+      render();
+    } catch (error) { toast(error.message); }
   }
 });
 
 document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    state.chatId = null;
+    state.messages = [];
+    state.chatDrawerOpen = false;
+    state.tab = 'chat';
+    state.route = { name: 'chat', params: {} };
+    if (location.pathname !== '/') history.pushState({}, '', '/');
+    render();
+    document.getElementById('chat-input')?.focus();
+    return;
+  }
+  if (event.key === 'Escape' && state.chatDrawerOpen) {
+    state.chatDrawerOpen = false;
+    render();
+    return;
+  }
+  const tag = (event.target?.tagName || '').toLowerCase();
+  if (event.key === '/' && !['input', 'textarea', 'select'].includes(tag) && !event.ctrlKey && !event.metaKey) {
+    const input = document.getElementById('chat-input');
+    if (input) {
+      event.preventDefault();
+      input.focus();
+      return;
+    }
+  }
   if (event.key === 'Enter' && !event.shiftKey && event.target.id === 'chat-input') {
     event.preventDefault();
     const input = event.target;
@@ -1104,12 +1532,57 @@ document.addEventListener('change', async (event) => {
 
 document.addEventListener('input', (event) => {
   if (event.target.id === 'chat-input') state.draft = event.target.value;
+  if (event.target.id === 'chat-history-filter') {
+    state.chatFilter = event.target.value;
+    render();
+    const filterEl = document.getElementById('chat-history-filter');
+    if (filterEl) {
+      filterEl.focus();
+      filterEl.setSelectionRange(filterEl.value.length, filterEl.value.length);
+    }
+  }
   if (event.target.id === 'wizard-subject-search') {
     const query = event.target.value.trim().toLowerCase();
     document.querySelectorAll('[data-subject-tile]').forEach((el) => {
       el.classList.toggle('hidden', !!query && !el.dataset.subjectTile.toLowerCase().includes(query));
     });
   }
+});
+
+document.addEventListener('paste', async (event) => {
+  if (state.view !== 'main' || state.tab !== 'chat') return;
+  const items = Array.from(event.clipboardData?.items || []);
+  const fileItem = items.find((item) => item.kind === 'file' && (item.type.startsWith('image/') || item.type === 'application/pdf'));
+  if (!fileItem) return;
+  const file = fileItem.getAsFile();
+  if (file) {
+    event.preventDefault();
+    await uploadFile(file);
+  }
+});
+
+document.addEventListener('dragover', (event) => {
+  if (state.view !== 'main') return;
+  if (event.dataTransfer?.types?.includes('Files')) {
+    event.preventDefault();
+    document.body.classList.add('dragging-file');
+  }
+});
+
+document.addEventListener('dragleave', (event) => {
+  if (event.relatedTarget === null) {
+    document.body.classList.remove('dragging-file');
+  }
+});
+
+document.addEventListener('drop', async (event) => {
+  document.body.classList.remove('dragging-file');
+  if (state.view !== 'main') return;
+  const file = event.dataTransfer?.files?.[0];
+  if (!file) return;
+  event.preventDefault();
+  const target = state.examWizard ? 'wizard' : 'chat';
+  await uploadFile(file, target);
 });
 
 async function loadPreps() {

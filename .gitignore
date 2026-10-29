@@ -9,6 +9,9 @@ local.properties
 fullstack/data/
 node_modules/
 fullstack/node_modules/
+desktop/node_modules/
+desktop/build/
+dist/
 *.db
 .commandcode/
 *.log

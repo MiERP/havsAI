@@ -21,19 +21,23 @@ Một mock PWA nhỏ (`web-mock/`) được giữ để test hợp đồng postM
 - API key AI được mã hoá bằng `SETTINGS_KEY` hoặc `fullstack/data/settings.key` (0600). Deploy script backup cả DB và key này.
 - Chỉ quản lý màu sắc, không có layout builder/feature flags.
 
-## Full-stack app (web + backend)
+## Full-stack app (Đa thiết bị, Đa nền tảng: Web + PWA + Android TWA)
 
 Bản full-stack nằm trong `fullstack/`:
 
 - `server.js` — Node HTTP server, SQLite built-in (`node:sqlite`), auth OTP, onboarding,
-  chat SSE, uploads, exam prep, dashboard. Không có thanh toán/gói trả phí.
-- `public/` — SPA mobile-first (login, onboarding, chat, ôn thi, tiến độ, cài đặt).
+  chat SSE, quản lý hội thoại (`PATCH/DELETE /api/chats/:id`), uploads, exam prep, dashboard. Không có thanh toán/gói trả phí.
+- `public/` — Ứng dụng Web tự thích ứng (Responsive Desktop / Tablet / Mobile) kiêm PWA cài đặt độc lập trên Windows, macOS, Linux, iOS/iPadOS Safari và Android:
+  - **Mobile (`< 768px`)**: Thanh điều hướng dưới cùng (`.bottom-nav`), ngăn kéo lịch sử chat trượt ngang (`.chat-sidebar`).
+  - **Tablet (`>= 768px`) & Desktop (`>= 1024px`)**: Thanh điều hướng dọc bên trái (`.side-nav`), cột lịch sử chat cố định (tạo mới, tìm kiếm, đổi tên, xóa đoạn chat), bố cục 2 cột cho Ôn thi / Tiến độ / Lịch / Lab, hỗ trợ kéo-thả tệp (`drag-and-drop`), dán ảnh từ clipboard (`Ctrl+V`), và phím tắt (`Ctrl/Cmd+K` tạo chat mới, `/` đặt con trỏ vào ô nhập).
+  - **Cầu nối đa nền tảng (`window.havsPlatform`)**: Tự động nhận diện `Android TWA` (qua `MessagePort` hai chiều `havs-native-ready`, `havs-set-theme`, `havs-identify`, `havs-track-event`, `havs-request-push-permission`), `Installed PWA` (`display-mode: standalone`), hoặc `Web Browser`, đồng thời đồng bộ tức thời giữa nhiều tab/thiết bị qua SSE (`/api/realtime`).
+  - **PWA & Offline Shell**: `manifest.webmanifest` (`orientation: "any"`, `icon.svg`, `icon-maskable.svg`, shortcuts) + Service Worker `/sw.js` cache gói giao diện tĩnh.
 - AI: mặc định **Command Code + DeepSeek** (`deepseek/deepseek-v4.1-flash`), đọc key từ
   `~/.commandcode/auth.json`. Có thể override bằng `COMMANDCODE_API_KEY`,
   `COMMANDCODE_MODEL`, `COMMANDCODE_BASE_URL`; hoặc dùng trực tiếp DeepSeek với
   `AI_PROVIDER=deepseek` + `DEEPSEEK_API_KEY`. `AI_PROVIDER=mock` để chạy offline.
 - Chạy: `node fullstack/server.js` → `http://localhost:3000`.
-- Đặc tả đầy đủ: `docs/havs-full-spec.md`.
+- Đặc tả đầy đủ: `docs/havs-full-spec.md` và `docs/SPEC-multiplatform-web.md`.
 
 ## Vị trí cấu hình API DeepSeek
 

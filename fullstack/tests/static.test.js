@@ -18,7 +18,8 @@ test('browser and server scripts pass a syntax check', () => {
     path.join(root, 'fullstack', 'lib', 'secrets.js'),
     path.join(publicDir, 'app.js'),
     path.join(publicDir, 'features.js'),
-    path.join(publicDir, 'admin.js')
+    path.join(publicDir, 'admin.js'),
+    path.join(publicDir, 'sw.js')
   ]) {
     const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
     assert.equal(result.status, 0, `${path.basename(file)}: ${result.stderr}`);
@@ -113,4 +114,60 @@ test('App Links and PWA identity use the deployed host', () => {
   const webManifest = read(publicDir, 'manifest.webmanifest');
   assert.match(webManifest, /"id":\s*"https:\/\/103-20-102-229\.sslip\.io\/"/);
   assert.doesNotMatch(webManifest, /havs\.local/);
+});
+
+test('multi-platform PWA manifest, icons, iOS meta tags, and service worker are configured', () => {
+  for (const file of ['icon.svg', 'icon-maskable.svg', 'sw.js']) {
+    assert.ok(fs.existsSync(path.join(publicDir, file)), `missing ${file}`);
+  }
+  const manifest = JSON.parse(read(publicDir, 'manifest.webmanifest'));
+  assert.equal(manifest.orientation, 'any');
+  assert.ok(Array.isArray(manifest.icons) && manifest.icons.length >= 2);
+  assert.ok(manifest.icons.some((icon) => icon.src === '/icon.svg'));
+  assert.ok(manifest.icons.some((icon) => icon.src === '/icon-maskable.svg' && icon.purpose === 'maskable'));
+  assert.ok(Array.isArray(manifest.shortcuts) && manifest.shortcuts.length >= 2);
+
+  const index = read(publicDir, 'index.html');
+  assert.match(index, /apple-mobile-web-app-capable/);
+  assert.match(index, /rel="icon"[^>]+href="\/icon\.svg"/);
+  assert.match(index, /rel="apple-touch-icon"[^>]+href="\/icon\.svg"/);
+
+  const sw = read(publicDir, 'sw.js');
+  assert.match(sw, /\/api\//);
+  assert.match(sw, /\/vendor\/katex\/katex\.min\.js/);
+});
+
+test('unified platform bridge, chat history management, and responsive desktop layout are wired', () => {
+  const app = read(publicDir, 'app.js');
+  assert.match(app, /havsPlatform/);
+  assert.match(app, /havs-native-ready/);
+  assert.match(app, /havs-device-info/);
+  assert.match(app, /havs-set-theme/);
+  assert.match(app, /serviceWorker\.register\('\/sw\.js'\)/);
+  assert.match(app, /new-chat/);
+  assert.match(app, /delete-chat/);
+  assert.match(app, /rename-chat/);
+
+  const css = read(publicDir, 'styles.css');
+  assert.match(css, /@media\s*\(min-width:\s*768px\)/);
+  assert.match(css, /@media\s*\(min-width:\s*1024px\)/);
+  assert.match(css, /\.side-nav/);
+  assert.match(css, /\.chat-sidebar/);
+
+  const features = read(publicDir, 'features.js');
+  assert.match(features, /install-app/);
+  assert.match(features, /request-push/);
+});
+
+test('desktop application shell is pre-configured to connect to the production server', () => {
+  const desktopDir = path.join(root, 'desktop');
+  for (const file of ['config.json', 'package.json', 'main.js', 'preload.js', 'Program.cs']) {
+    assert.ok(fs.existsSync(path.join(desktopDir, file)), `missing desktop/${file}`);
+  }
+  const config = JSON.parse(read(desktopDir, 'config.json'));
+  assert.equal(config.serverUrl, 'https://103-20-102-229.sslip.io');
+  const mainJs = read(desktopDir, 'main.js');
+  assert.match(mainJs, /103-20-102-229\.sslip\.io/);
+  const programCs = read(desktopDir, 'Program.cs');
+  assert.match(programCs, /103-20-102-229\.sslip\.io/);
 });
