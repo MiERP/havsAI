@@ -942,8 +942,9 @@ function renderExamWizard() {
     ${wizard.uploadName ? `<div class="item attach-preview"><span>📄</span><div class="grow"><b>${esc(wizard.uploadName)}</b><small>${wizard.uploadPages ? `${wizard.uploadPages} trang` : 'Đã tải lên'}</small></div><button class="btn ghost" data-action="wizard-remove-upload">Bỏ</button></div>` : ''}
     <div class="info-box"><span>ⓘ</span><p><b>Vì sao tài liệu của bạn quan trọng</b><br>Bạn càng thêm nhiều tài liệu, havsAI càng hiểu rõ hơn. havsAI xác định các chủ đề, lập kế hoạch và tạo bài luyện sát với bài kiểm tra của bạn.</p></div>
     ${wizard.uploading ? '<p class="small">Đang tải tài liệu lên…</p>' : ''}
-    <button class="btn ghost" data-action="wizard-create"${wizard.uploading ? ' disabled' : ''}>Tiếp tục không có tài liệu</button>
-    <button class="btn" data-action="wizard-create"${wizard.uploading ? ' disabled' : ''}>Tiếp tục${wizard.uploadId ? ' với tài liệu' : ''}</button>
+    ${wizard.creating ? '<p class="small">Đang tạo kế hoạch và bài học…</p>' : ''}
+    <button class="btn ghost" data-action="wizard-create"${wizard.uploading || wizard.creating ? ' disabled' : ''}>Tiếp tục không có tài liệu</button>
+    <button class="btn" data-action="wizard-create"${wizard.uploading || wizard.creating ? ' disabled' : ''}>Tiếp tục${wizard.uploadId ? ' với tài liệu' : ''}</button>
   </div>`;
 }
 
@@ -974,6 +975,8 @@ async function createExamFromWizard() {
   const wizard = state.examWizard;
   if (!wizard) return;
   if (wizard.uploading) { toast('Đang tải tài liệu lên, chờ một chút'); return; }
+  if (wizard.creating) return;
+  wizard.creating = true;
   const title = `${subjectName(wizard.subject)}${wizard.examDate ? ` · ${wizard.examDate}` : ''}`;
   try {
     const created = await api('/api/preps', {
@@ -988,6 +991,7 @@ async function createExamFromWizard() {
     });
     let plan = null;
     try {
+      toast('Đang tạo bài học từ tài liệu, có thể mất tới 30 giây…');
       const generated = await api(`/api/preps/${created.id}/generate`, { method: 'POST' });
       plan = generated?.plan || null;
     } catch (error) {
@@ -999,6 +1003,10 @@ async function createExamFromWizard() {
       : 'Đã tạo kỳ ôn nhưng AI chưa sinh được nội dung');
     navigate(`/exam-preps/${created.id}`);
   } catch (error) {
+    if (state.examWizard) {
+      state.examWizard.creating = false;
+      render();
+    }
     toast(error.message);
   }
 }

@@ -496,7 +496,7 @@ async function generatePrepPlan(prep, userId) {
   return { plan, usedAi };
 }
 
-function buildLessonFromDay(day, index) {
+function buildLessonFromDay(day, index, fallbackPractice) {
   const lesson = day.lesson && typeof day.lesson === 'object' ? day.lesson : {};
   const intro = typeof lesson.intro === 'string' ? lesson.intro : '';
   const sections = Array.isArray(lesson.sections)
@@ -505,9 +505,14 @@ function buildLessonFromDay(day, index) {
   const example = lesson.example && typeof lesson.example === 'object' && (lesson.example.problem || lesson.example.steps)
     ? lesson.example
     : null;
-  const practice = Array.isArray(day.practice)
+  let practice = Array.isArray(day.practice)
     ? day.practice.filter((item) => item && item.question)
     : [];
+  if (!practice.length && Array.isArray(fallbackPractice)) {
+    const pool = fallbackPractice.filter((item) => item && item.question);
+    practice = pool.slice(index, index + 2);
+    if (!practice.length) practice = pool.slice(0, 2);
+  }
   const content = [
     intro,
     ...sections.map((section) => `${section.heading ? `${section.heading}: ` : ''}${section.body || ''}`)
@@ -1007,7 +1012,7 @@ function ensurePrepExtras(prep) {
   if (needsLessons) {
     const doneIds = new Set(storedLessons.filter((lesson) => lesson.done).map((lesson) => lesson.id));
     lessons = (plan.days || []).map((day, index) => {
-      const lesson = buildLessonFromDay(day, index);
+      const lesson = buildLessonFromDay(day, index, plan.practice);
       if (doneIds.has(lesson.id)) lesson.done = true;
       return lesson;
     });
