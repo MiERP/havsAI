@@ -293,16 +293,24 @@ function renderExamDetail() {
   return `<div class="pad">
     <button class="btn ghost" data-action="nav" data-value="/exam-preps">← Ôn thi</button>
     <h1>${esc(prep.title)}</h1><p>${esc(subjectName(prep.subject))} · ${fmtDate(prep.examDate)} · ${esc(prep.status)}</p>
-    ${prep.material ? `<p class="small">📄 Tài liệu: ${esc(prep.material.filename)}${prep.material.pages ? ` · ${prep.material.pages} trang` : ''}</p>` : '<p class="small">Chưa gắn tài liệu nào cho kỳ ôn này.</p>'}
-    <div class="row" style="margin:8px 0">
-      <button class="btn ghost" data-action="prep-material-pick">${prep.material ? 'Đổi tài liệu' : 'Gắn tài liệu'}</button>
+    ${(prep.materials || []).length
+      ? `<p class="small">📄 Tài liệu: ${(prep.materials || []).map((item) => `${esc(item.filename)}${item.pages ? ` (${item.pages} trang)` : ''}`).join(' · ')}</p>`
+      : '<p class="small">Chưa gắn tài liệu nào cho kỳ ôn này.</p>'}
+    <div class="row" style="margin:8px 0;flex-wrap:wrap;gap:8px">
+      <button class="btn ghost" data-action="prep-material-pick">Thêm tài liệu</button>
+      ${(prep.materials || []).map((item) => `<button class="btn ghost" data-action="prep-material-remove" data-value="${prep.id}|${item.id}">Bỏ ${esc(item.filename)}</button>`).join('')}
       <input id="prep-material" type="file" accept="image/*,application/pdf" data-prep-id="${prep.id}" class="hidden" />
     </div>
     ${prep.plan?.generatedBy === 'fallback' ? `<div class="info-box"><span>ⓘ</span><p><b>AI chưa tạo được nội dung</b>${prep.plan?.error ? ` (${esc(prep.plan.error)})` : ''}, nên kế hoạch dưới đây chỉ là mẫu chung. Bấm “Tạo lại bằng AI” để sinh bài học từ tài liệu.</p></div>` : ''}
     <div class="exam-detail-grid">
       <div>
         <div class="card" style="margin-bottom:14px"><h2>Tiến độ</h2><p>${mastery.completedLessons || 0}/${mastery.totalLessons || prep.lessons?.length || 0} bài · ${mastery.attempts || 0} lần làm · TB ${mastery.averageScore || 0}%</p>
-          <div class="row"><button class="btn secondary" data-action="exam-share" data-value="${prep.id}">Chia sẻ</button><button class="btn ghost" data-action="exam-regenerate" data-value="${prep.id}">Tạo lại bằng AI</button><button class="btn ghost" data-action="nav" data-value="/calendar">Thêm lịch</button></div>
+          <div class="row" style="align-items:center;flex-wrap:wrap;gap:8px">
+            <label class="small">Số ngày ôn <input id="plan-days" type="number" min="3" max="14" value="${prep.planDays || 5}" style="width:70px" /></label>
+            <button class="btn secondary" data-action="exam-share" data-value="${prep.id}">Chia sẻ</button>
+            <button class="btn ghost" data-action="exam-regenerate" data-value="${prep.id}">Tạo lại bằng AI</button>
+            <button class="btn ghost" data-action="nav" data-value="/calendar">Thêm lịch</button>
+          </div>
           ${prep.shareId ? `<p class="small">Link chia sẻ: <code>/share/a/${esc(prep.shareId)}</code></p>` : ''}
         </div>
         <div class="card" style="margin-bottom:14px"><h2>Kế hoạch</h2>
@@ -342,7 +350,15 @@ function renderLesson() {
     ${lesson.intro ? `<div class="card" style="margin-bottom:14px"><p style="white-space:pre-wrap">${esc(lesson.intro)}</p></div>` : ''}
     ${sections.map((section) => `<div class="card" style="margin-bottom:14px">${section.heading ? `<h2>${esc(section.heading)}</h2>` : ''}<p style="white-space:pre-wrap">${esc(section.body || '')}</p></div>`).join('')}
     ${example ? `<div class="card" style="margin-bottom:14px"><h2>Ví dụ</h2>${example.problem ? `<p><b>Đề bài:</b> ${esc(example.problem)}</p>` : ''}${(example.steps || []).map((step, index) => `<p>${index + 1}. ${esc(step)}</p>`).join('')}${example.answer ? `<p><b>Đáp số:</b> ${esc(example.answer)}</p>` : ''}</div>` : ''}
-    ${practice.length ? `<div class="card" style="margin-bottom:14px"><h2>Luyện tập</h2>${practice.map((item, index) => `<div class="item" style="margin-bottom:8px"><p><b>Câu ${index + 1}.</b> ${esc(item.question)}</p><details><summary>Xem đáp án</summary><p style="white-space:pre-wrap">${esc(item.answer || 'Chưa có đáp án.')}</p></details></div>`).join('')}</div>` : ''}
+    ${practice.length ? `<div class="card" style="margin-bottom:14px"><h2>Luyện tập</h2>${practice.map((item, index) => `<div class="item" style="margin-bottom:12px">
+      <p><b>Câu ${index + 1}.</b> ${esc(item.question)}</p>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <input id="practice-${index}" class="input" placeholder="Nhập đáp án của bạn" style="flex:1;min-width:160px" />
+        <button class="btn secondary" data-action="practice-check" data-value="${prep.id}|${lesson.id}|${index}">Kiểm tra</button>
+      </div>
+      <p class="small" id="practice-result-${index}"></p>
+      <details><summary>Xem đáp án</summary><p style="white-space:pre-wrap">${esc(item.answer || 'Chưa có đáp án.')}</p></details>
+    </div>`).join('')}</div>` : ''}
     ${empty ? `<div class="card"><p class="small">Bài học này chưa có nội dung chi tiết. Hãy tạo lại bằng AI.</p></div>` : ''}
     ${!lesson.done ? `<button class="btn" style="margin-top:14px" data-action="lesson-complete" data-value="${prep.id}|${lesson.id}">Đánh dấu đã học</button>` : '<p class="small">Đã hoàn thành bài này.</p>'}
   </div>`;
@@ -639,14 +655,54 @@ document.addEventListener('click', async (event) => {
   }
   if (action === 'exam-regenerate') {
     try {
-      toast('Đang tạo lại nội dung bằng AI…');
-      const data = await api(`/api/exam-preps/${value}/generate`, { method: 'POST' });
+      const daysInput = document.getElementById('plan-days');
+      const days = daysInput ? Number(daysInput.value) : 0;
+      toast('Đang tạo lại nội dung bằng AI, có thể mất tới 1 phút…');
+      const data = await api(`/api/exam-preps/${value}/generate`, {
+        method: 'POST',
+        body: JSON.stringify(days >= 3 ? { days } : {})
+      });
       await loadRouteData();
       render();
       const plan = data?.prep?.plan || data?.plan;
       toast(plan?.generatedBy === 'ai'
-        ? 'Đã tạo nội dung mới từ tài liệu'
+        ? `Đã tạo ${plan.days?.length || ''} bài học từ tài liệu`
         : `AI chưa phản hồi: ${plan?.error || 'thử lại sau'}`);
+    } catch (error) {
+      toast(error.message);
+    }
+    return;
+  }
+  if (action === 'practice-check') {
+    const [prepId, lessonId, index] = value.split('|');
+    const input = document.getElementById(`practice-${index}`);
+    const target = document.getElementById(`practice-result-${index}`);
+    const answer = input ? input.value : '';
+    if (!answer.trim()) {
+      if (target) target.textContent = 'Hãy nhập đáp án trước.';
+      return;
+    }
+    try {
+      const data = await api(`/api/exam-preps/${prepId}/lessons/${lessonId}/practice/${index}`, {
+        method: 'POST',
+        body: JSON.stringify({ answer })
+      });
+      if (target) {
+        target.textContent = data.correct ? '✅ Chính xác!' : `❌ Chưa đúng. Đáp án đúng: ${data.expected || 'xem gợi ý'}`;
+        target.style.color = data.correct ? 'var(--accent-2)' : '#b91c1c';
+      }
+    } catch (error) {
+      toast(error.message);
+    }
+    return;
+  }
+  if (action === 'prep-material-remove') {
+    const [prepId, uploadId] = value.split('|');
+    try {
+      await api(`/api/exam-preps/${prepId}/material/${uploadId}`, { method: 'DELETE' });
+      await loadRouteData();
+      render();
+      toast('Đã bỏ tài liệu khỏi kỳ ôn');
     } catch (error) {
       toast(error.message);
     }

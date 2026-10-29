@@ -228,6 +228,11 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   });
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (sessionStorage.getItem('havs-sw-reloaded')) return;
+    sessionStorage.setItem('havs-sw-reloaded', '1');
+    location.reload();
+  });
 }
 
 const app = document.getElementById('app');

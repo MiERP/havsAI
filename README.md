@@ -124,13 +124,17 @@ curl http://localhost:3000/api/health
 
 ## Ôn thi từ tài liệu
 
-- Tài liệu tải ở wizard hoặc nút “Gắn tài liệu” trong trang kỳ ôn; lưu ở bảng `uploads`
-  (dùng chung với chat, mỗi bản ghi thuộc một `user_id`). Trang kỳ ôn hiển thị tài liệu đã gắn.
-- `POST /api/preps/:id/generate` và `/api/exam-preps/:id/generate` gửi tối đa 14.000 ký tự
-  tài liệu cho model, yêu cầu schema v2: `topics`, 5 ngày, mỗi ngày có bài học tự học
-  (`intro`, `sections` có LaTeX, `example` có lời giải, 2 câu `practice`).
-- Bài học hiển thị tại `/exam-preps/:id/lessons/:lessonId`; “Đánh dấu đã học” lưu trong
-  `preps.lessons_json` và được giữ nguyên khi tạo lại nội dung.
+- Tài liệu tải ở wizard hoặc nút “Thêm tài liệu” trong trang kỳ ôn; lưu ở bảng `uploads`
+  (dùng chung với chat, mỗi bản ghi thuộc một `user_id`). Một kỳ ôn nhận **nhiều tài liệu**
+  qua bảng `prep_materials`; trang kỳ ôn liệt kê và cho bỏ từng tài liệu.
+- `POST /api/preps/:id/generate` và `/api/exam-preps/:id/generate` gộp tối đa 24.000 ký tự
+  từ tất cả tài liệu (chia đều ngân sách), yêu cầu schema v2: `topics`, N ngày, mỗi ngày có
+  bài học tự học (`intro`, `sections` có LaTeX, `example` có lời giải, `practice`).
+- Số ngày: `plan_days` do người dùng đặt (3–14) hoặc tự tính — nhiều tài liệu hơn thì dài
+  hơn (`3 + 2 × số tài liệu`, tối thiểu 5), rút ngắn theo số ngày còn lại tới ngày thi.
+- Bài học hiển thị tại `/exam-preps/:id/lessons/:lessonId`: lý thuyết, ví dụ có lời giải,
+  luyện tập nhập đáp án và được chấm ngay (`/lessons/:lessonId/practice/:index`).
+  “Đánh dấu đã học” lưu trong `preps.lessons_json` và giữ nguyên khi tạo lại nội dung.
 - Nếu model lỗi/timeout/trả JSON hỏng, kế hoạch rơi về mẫu chung, `plan.generatedBy = "fallback"`,
   trang ghi rõ lỗi kèm nút “Tạo lại bằng AI”.
 - Giới hạn tải lên: `MAX_UPLOAD_MB` (mặc định 20MB, khớp `UPLOAD_MAX_MB` phía client);

@@ -341,6 +341,66 @@ test('an existing prep can be given a material before regenerating', async () =>
   assert.equal(invalid.status, 400);
 });
 
+test('a prep can hold several materials and drop one', async () => {
+  const cookie = await login('multimaterial@example.com');
+  const ids = [];
+  for (const name of ['a.pdf', 'b.pdf']) {
+    const uploaded = await request('POST', '/api/uploads', {
+      filename: name, mime: 'application/pdf', dataBase64: makePdf(1).toString('base64')
+    }, cookie);
+    ids.push((await uploaded.json()).id);
+  }
+  const created = await request('POST', '/api/preps', { title: 'Nhieu tai lieu', subject: 'math' }, cookie);
+  const prepId = (await created.json()).id;
+
+  await request('POST', `/api/exam-preps/${prepId}/material`, { uploadId: ids[0] }, cookie);
+  const second = await request('POST', `/api/exam-preps/${prepId}/material`, { uploadId: ids[1] }, cookie);
+  assert.equal((await second.json()).materials.length, 2);
+
+  const removed = await request('DELETE', `/api/exam-preps/${prepId}/material/${ids[0]}`, null, cookie);
+  assert.equal(removed.status, 200);
+  assert.equal((await removed.json()).materials.length, 1);
+});
+
+test('the requested number of study days is stored with the prep', async () => {
+  const cookie = await login('days@example.com');
+  const created = await request('POST', '/api/preps', { title: 'So ngay', subject: 'math' }, cookie);
+  const prepId = (await created.json()).id;
+  const generated = await request('POST', `/api/exam-preps/${prepId}/generate`, { days: 8 }, cookie);
+  assert.equal(generated.status, 200);
+  const { prep } = await generated.json();
+  assert.equal(prep.planDays, 8);
+});
+
+test('lesson practice answers are checked against the stored answer', async () => {
+  const cookie = await login('practice@example.com');
+  const created = await request('POST', '/api/preps', { title: 'Luyen tap', subject: 'math' }, cookie);
+  const prepId = (await created.json()).id;
+  const plan = {
+    version: 2,
+    title: 'Luyen tap',
+    subject: 'math',
+    days: [{
+      day: 1,
+      focus: 'So hoc',
+      tasks: ['Doc bai'],
+      lesson: { intro: 'Intro', sections: [], example: null },
+      practice: [{ question: '2 + 2 bang may?', answer: '4' }]
+    }],
+    practice: [],
+    tips: []
+  };
+  db.prepare('UPDATE preps SET plan_json = ? WHERE id = ?').run(JSON.stringify(plan), prepId);
+  await request('GET', `/api/exam-preps/${prepId}`, null, cookie);
+
+  const right = await request('POST', `/api/exam-preps/${prepId}/lessons/lesson-1/practice/0`, { answer: '4' }, cookie);
+  assert.equal(right.status, 200);
+  assert.equal((await right.json()).correct, true);
+
+  const wrong = await request('POST', `/api/exam-preps/${prepId}/lessons/lesson-1/practice/0`, { answer: '5' }, cookie);
+  assert.equal((await wrong.json()).correct, false);
+});
+
 test('AI plans become lessons with sections, a worked example and practice', async () => {
   const cookie = await login('lessons@example.com');
   const created = await request('POST', '/api/preps', { title: 'On tap ham so', subject: 'math' }, cookie);

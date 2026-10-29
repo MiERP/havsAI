@@ -102,6 +102,11 @@ CREATE TABLE IF NOT EXISTS lab_apps (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL, slug TEXT UNIQUE, name TEXT, prompt TEXT,
   html TEXT, visibility TEXT DEFAULT 'private', created_at INTEGER NOT NULL, updated_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS prep_materials (
+  prep_id TEXT NOT NULL, upload_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+  PRIMARY KEY (prep_id, upload_id)
+);
+CREATE INDEX IF NOT EXISTS idx_prep_materials ON prep_materials(prep_id);
 CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_attempts_user ON attempts(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_calendar_user ON calendar_events(user_id, event_date);
@@ -123,6 +128,11 @@ ensureColumn('messages', 'tools_json', 'tools_json TEXT');
 ensureColumn('preps', 'plan_json', 'plan_json TEXT');
 ensureColumn('preps', 'updated_at', 'updated_at INTEGER');
 ensureColumn('preps', 'material_upload_id', 'material_upload_id TEXT');
+ensureColumn('preps', 'plan_days', 'plan_days INTEGER');
+try {
+  db.exec(`INSERT OR IGNORE INTO prep_materials (prep_id, upload_id, created_at)
+    SELECT id, material_upload_id, COALESCE(created_at, 0) FROM preps WHERE material_upload_id IS NOT NULL`);
+} catch {}
 ensureColumn('preps', 'source', 'source TEXT');
 ensureColumn('preps', 'share_id', 'share_id TEXT');
 ensureColumn('preps', 'school', 'school TEXT');
@@ -437,7 +447,19 @@ const PLAN_SYSTEM =
   PLAN_SCHEMA +
   '. Viết công thức bằng LaTeX trong $...$ (ví dụ $\\frac{1}{2}$, $x^{2}$, $v = \\frac{s}{t}$), không dùng ảnh.';
 
-function buildPlanPrompt(prep, materialName, materialText) {
+function resolvePlanDays(prep, materialCount) {
+  const explicit = Number(prep.plan_days);
+  if (Number.isFinite(explicit) && explicit >= 3 && explicit <= 14) return Math.round(explicit);
+  const base = Math.min(14, Math.max(5, 3 + Math.max(1, materialCount) * 2));
+  const exam = prep.exam_date ? new Date(prep.exam_date) : null;
+  if (exam && !Number.isNaN(exam.getTime())) {
+    const daysLeft = Math.ceil((exam.getTime() - Date.now()) / 86400000);
+    if (daysLeft >= 2) return Math.min(base, Math.min(14, daysLeft));
+  }
+  return base;
+}
+
+function buildPlanPrompt(prep, materialName, materialText, days) {
   const lines = [
     `Môn: ${prep.subject || 'chung'}`,
     `Tên kỳ ôn: ${prep.title || ''}`,
@@ -447,40 +469,48 @@ function buildPlanPrompt(prep, materialName, materialText) {
     lines.push(
       `Tài liệu của học sinh (${materialName || 'tài liệu tải lên'}):`,
       materialText,
-      'Yêu cầu: bám sát tài liệu trên. Nêu 5-8 chủ đề thật sự có trong tài liệu.'
+      'Yêu cầu: bám sát tài liệu trên. Mỗi ngày lấy 1-2 chủ đề thật sự có trong tài liệu và trải đều toàn bộ tài liệu cho đủ số ngày.'
     );
   } else {
     lines.push('Không có tài liệu đính kèm: dựa vào chuẩn kiến thức phổ thông của môn này.');
   }
+  const perDay = days > 7
+    ? '1 mục sections ngắn (tối đa 3 câu) và 1 câu practice'
+    : '2 mục sections (heading và body giải thích, có công thức LaTeX) và 2 câu practice (question và answer)';
   lines.push(
-    'Tạo đúng 5 ngày. Mỗi ngày: 1-2 chủ đề, 3-5 nhiệm vụ, và một bài học tự học gồm intro 2-3 câu, ' +
-    '2 mục sections (heading và body giải thích, có công thức LaTeX), một ví dụ có problem, steps, answer, ' +
-    'và 2 câu practice (question và answer). Cuối cùng thêm 3 câu luyện tập tổng và 3 mẹo. ' +
-    'Viết ngắn gọn để vừa 5000 token.'
+    `Tạo đúng ${days} ngày (day = 1..${days}). Mỗi ngày: 1-2 chủ đề, 3-5 nhiệm vụ, và một bài học tự học gồm intro 2-3 câu, ` +
+    `${perDay}, một ví dụ có problem, steps, answer. Cuối cùng thêm 3 câu luyện tập tổng và 3 mẹo. ` +
+    'Viết ngắn gọn để vừa 8000 token.'
   );
   return lines.join('\n');
 }
 
 async function generatePrepPlan(prep, userId) {
-  let materialName = '';
-  let materialText = '';
   let error = '';
-  if (prep.material_upload_id) {
+  const materialNames = [];
+  const materialParts = [];
+  const materialIds = prepMaterialIds(prep);
+  const budget = materialIds.length > 1 ? Math.floor(24000 / materialIds.length) : 14000;
+  for (const uploadId of materialIds) {
     try {
-      const row = findUpload(userId, prep.material_upload_id);
-      if (row) {
-        materialName = row.filename || '';
-        const material = /^image\//i.test(row.mime || '')
-          ? await analyzeImageUpload(userId, prep.material_upload_id)
-          : await extractUploadText(userId, prep.material_upload_id);
-        if (material?.text) materialText = String(material.text).slice(0, 14000);
+      const row = findUpload(userId, uploadId);
+      if (!row) continue;
+      materialNames.push(row.filename || 'tài liệu');
+      const material = /^image\//i.test(row.mime || '')
+        ? await analyzeImageUpload(userId, uploadId)
+        : await extractUploadText(userId, uploadId);
+      if (material?.text) {
+        materialParts.push(`--- ${row.filename || 'tài liệu'} ---\n${String(material.text).slice(0, Math.max(3000, budget))}`);
       }
     } catch (cause) {
       error = `material_${cause.message}`;
     }
   }
+  const materialText = materialParts.join('\n\n').slice(0, 24000);
+  const materialName = materialNames.join(', ');
+  const days = resolvePlanDays(prep, materialIds.length);
 
-  const prompt = buildPlanPrompt(prep, materialName, materialText);
+  const prompt = buildPlanPrompt(prep, materialName, materialText, days);
   let result = await callModelJson(PLAN_SYSTEM, prompt, { maxTokens: 8000 });
   let plan = parseJsonLoose(result.content);
   if (!plan || !Array.isArray(plan.days) || !plan.days.length) {
@@ -501,7 +531,8 @@ async function generatePrepPlan(prep, userId) {
   const usedAi = Boolean(plan && Array.isArray(plan.days) && plan.days.length);
   if (usedAi) {
     plan.version = 2;
-    plan.days = plan.days.slice(0, 7);
+    plan.days = plan.days.slice(0, days);
+    plan.plannedDays = days;
   } else {
     if (!error) {
       error = result.finish === 'length'
@@ -1096,16 +1127,26 @@ function ensurePrepExtras(prep) {
   };
 }
 
-function prepMaterial(enriched) {
-  if (!enriched.material_upload_id) return null;
-  const row = db.prepare('SELECT id, filename, mime, page_count, extracted_kind FROM uploads WHERE user_id = ? AND id = ?')
-    .get(enriched.user_id, enriched.material_upload_id);
-  if (!row) return null;
-  return { id: row.id, filename: row.filename, mime: row.mime, pages: row.page_count, kind: row.extracted_kind || null };
+function prepMaterialIds(prep) {
+  const rows = db.prepare('SELECT upload_id FROM prep_materials WHERE prep_id = ? ORDER BY created_at').all(prep.id);
+  const ids = rows.map((row) => row.upload_id).filter(Boolean);
+  if (!ids.length && prep.material_upload_id) ids.push(prep.material_upload_id);
+  return ids;
+}
+
+function prepMaterials(prep) {
+  const ids = prepMaterialIds(prep);
+  if (!ids.length) return [];
+  const statement = db.prepare('SELECT id, filename, mime, page_count, extracted_kind FROM uploads WHERE user_id = ? AND id = ?');
+  return ids
+    .map((id) => statement.get(prep.user_id, id))
+    .filter(Boolean)
+    .map((row) => ({ id: row.id, filename: row.filename, mime: row.mime, pages: row.page_count, kind: row.extracted_kind || null }));
 }
 
 function prepView(prep) {
   const enriched = ensurePrepExtras(prep);
+  const materials = prepMaterials(enriched);
   return {
     id: enriched.id,
     title: enriched.title,
@@ -1118,7 +1159,9 @@ function prepView(prep) {
     createdAt: enriched.created_at,
     updatedAt: enriched.updated_at,
     plan: parseJsonValue(enriched.plan_json, null),
-    material: prepMaterial(enriched),
+    planDays: enriched.plan_days || (parseJsonValue(enriched.plan_json, null)?.days || []).length || 5,
+    material: materials[0] || null,
+    materials,
     lessons: parseJsonValue(enriched.lessons_json, []),
     challenges: parseJsonValue(enriched.challenges_json, []),
     mockExams: parseJsonValue(enriched.mock_json, []),
@@ -1126,7 +1169,13 @@ function prepView(prep) {
   };
 }
 
-async function regeneratePrep(prep, userId) {
+async function regeneratePrep(prep, userId, options = {}) {
+  const requestedDays = Number(options.days);
+  if (Number.isFinite(requestedDays) && requestedDays >= 3 && requestedDays <= 14) {
+    const days = Math.round(requestedDays);
+    db.prepare('UPDATE preps SET plan_days = ? WHERE id = ?').run(days, prep.id);
+    prep = { ...prep, plan_days: days };
+  }
   const previous = parseJsonValue(prep.lessons_json, []) || [];
   const doneIds = new Set(previous.filter((lesson) => lesson.done).map((lesson) => lesson.id));
   const { plan } = await generatePrepPlan(prep, userId);
@@ -1784,13 +1833,13 @@ function route(req, res) {
   const prepGenerate = p.match(/^\/api\/preps\/([^/]+)\/generate$/);
   if (prepGenerate && req.method === 'POST') {
     const ctx = requireUser(req, res); if (!ctx) return;
-    return (async () => {
+    return readJson(req).then(async (body) => {
       const prep = db.prepare('SELECT * FROM preps WHERE id = ? AND user_id = ?').get(prepGenerate[1], ctx.user.id);
       if (!prep) return send(res, 404, { error: 'not_found' });
-      const view = await regeneratePrep(prep, ctx.user.id);
+      const view = await regeneratePrep(prep, ctx.user.id, { days: body.days });
       broadcastRealtime(ctx.user.id, 'prep.updated', { prepId: prep.id });
       return send(res, 200, { plan: view.plan, prep: view });
-    })().catch((e) => send(res, 400, { error: e.message }));
+    }).catch((e) => send(res, 400, { error: e.message }));
   }
   const prepDetail = p.match(/^\/api\/preps\/([^/]+)$/);
   if (prepDetail && req.method === 'GET') {
@@ -1879,13 +1928,13 @@ function route(req, res) {
   const examGenerate = p.match(/^\/api\/exam-preps\/([^/]+)\/generate$/);
   if (examGenerate && req.method === 'POST') {
     const ctx = requireUser(req, res); if (!ctx) return;
-    return (async () => {
+    return readJson(req).then(async (body) => {
       const prep = db.prepare('SELECT * FROM preps WHERE id = ? AND user_id = ?').get(examGenerate[1], ctx.user.id);
       if (!prep) return send(res, 404, { error: 'not_found' });
-      const view = await regeneratePrep(prep, ctx.user.id);
+      const view = await regeneratePrep(prep, ctx.user.id, { days: body.days });
       broadcastRealtime(ctx.user.id, 'prep.updated', { prepId: prep.id });
       return send(res, 200, { plan: view.plan, prep: view });
-    })().catch((e) => send(res, 400, { error: e.message }));
+    }).catch((e) => send(res, 400, { error: e.message }));
   }
   const examMaterial = p.match(/^\/api\/exam-preps\/([^/]+)\/material$/);
   if (examMaterial && req.method === 'POST') {
@@ -1895,9 +1944,26 @@ function route(req, res) {
       if (!prep) return send(res, 404, { error: 'not_found' });
       const row = findUpload(ctx.user.id, String(body.uploadId || ''));
       if (!row) return send(res, 400, { error: 'invalid_upload' });
-      db.prepare('UPDATE preps SET material_upload_id = ?, updated_at = ? WHERE id = ?').run(row.id, now(), prep.id);
-      return send(res, 200, { material: { id: row.id, filename: row.filename, pages: row.page_count } });
+      db.prepare('INSERT OR IGNORE INTO prep_materials (prep_id, upload_id, created_at) VALUES (?, ?, ?)').run(prep.id, row.id, now());
+      if (!prep.material_upload_id) {
+        db.prepare('UPDATE preps SET material_upload_id = ?, updated_at = ? WHERE id = ?').run(row.id, now(), prep.id);
+      }
+      const materials = prepMaterials({ ...prep, material_upload_id: prep.material_upload_id || row.id });
+      return send(res, 200, { material: materials[0] || null, materials });
     }).catch((e) => send(res, 400, { error: e.message }));
+  }
+  const examMaterialRemove = p.match(/^\/api\/exam-preps\/([^/]+)\/material\/([^/]+)$/);
+  if (examMaterialRemove && req.method === 'DELETE') {
+    const ctx = requireUser(req, res); if (!ctx) return;
+    const prep = db.prepare('SELECT * FROM preps WHERE id = ? AND user_id = ?').get(examMaterialRemove[1], ctx.user.id);
+    if (!prep) return send(res, 404, { error: 'not_found' });
+    db.prepare('DELETE FROM prep_materials WHERE prep_id = ? AND upload_id = ?').run(prep.id, examMaterialRemove[2]);
+    let first = prep.material_upload_id;
+    if (first === examMaterialRemove[2]) {
+      first = prepMaterialIds({ ...prep, material_upload_id: null })[0] || null;
+      db.prepare('UPDATE preps SET material_upload_id = ?, updated_at = ? WHERE id = ?').run(first, now(), prep.id);
+    }
+    return send(res, 200, { materials: prepMaterials({ ...prep, material_upload_id: first }) });
   }
   const examShare = p.match(/^\/api\/exam-preps\/([^/]+)\/share$/);
   if (examShare && req.method === 'POST') {
@@ -1906,6 +1972,23 @@ function route(req, res) {
     if (!prep) return send(res, 404, { error: 'not_found' });
     const shareId = ensureShareId(prep);
     return send(res, 200, { shareId, url: `/share/a/${shareId}` });
+  }
+  const lessonPractice = p.match(/^\/api\/exam-preps\/([^/]+)\/lessons\/([^/]+)\/practice\/(\d+)$/);
+  if (lessonPractice && req.method === 'POST') {
+    const ctx = requireUser(req, res); if (!ctx) return;
+    return readJson(req).then((body) => {
+      const prep = db.prepare('SELECT * FROM preps WHERE id = ? AND user_id = ?').get(lessonPractice[1], ctx.user.id);
+      if (!prep) return send(res, 404, { error: 'not_found' });
+      const enriched = ensurePrepExtras(prep);
+      const lesson = (parseJsonValue(enriched.lessons_json, []) || []).find((item) => item.id === lessonPractice[2]);
+      if (!lesson) return send(res, 404, { error: 'lesson_not_found' });
+      const item = (lesson.practice || [])[Number(lessonPractice[3])];
+      if (!item) return send(res, 404, { error: 'practice_not_found' });
+      const given = normalizeAnswer(body.answer);
+      const expected = normalizeAnswer(item.answer);
+      const correct = Boolean(given) && (!expected || given === expected || given.includes(expected) || expected.includes(given));
+      return send(res, 200, { correct, expected: item.answer || '', given: String(body.answer || '') });
+    }).catch((e) => send(res, 400, { error: e.message }));
   }
   const lessonComplete = p.match(/^\/api\/exam-preps\/([^/]+)\/lessons\/([^/]+)\/complete$/);
   if (lessonComplete && req.method === 'POST') {
