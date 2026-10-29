@@ -162,21 +162,28 @@ test('a non-local host refuses OTP without a mailer and does not log the code', 
 });
 
 test('assetlinks is only served when a valid signing fingerprint is configured', async () => {
-  const missing = await request('GET', '/.well-known/assetlinks.json');
-  assert.equal(missing.status, 503);
-  assert.equal((await missing.json()).error, 'assetlinks_not_configured');
-
-  const fingerprint = Array.from({ length: 32 }, (_, index) => index.toString(16).padStart(2, '0'))
-    .join(':').toUpperCase();
-  process.env.ANDROID_SHA256_FINGERPRINTS = fingerprint;
+  const prevFingerprints = process.env.ANDROID_SHA256_FINGERPRINTS;
+  const prevPackage = process.env.ANDROID_PACKAGE_NAME;
+  delete process.env.ANDROID_SHA256_FINGERPRINTS;
+  delete process.env.ANDROID_PACKAGE_NAME;
   try {
+    const missing = await request('GET', '/.well-known/assetlinks.json');
+    assert.equal(missing.status, 503);
+    assert.equal((await missing.json()).error, 'assetlinks_not_configured');
+
+    const fingerprint = Array.from({ length: 32 }, (_, index) => index.toString(16).padStart(2, '0'))
+      .join(':').toUpperCase();
+    process.env.ANDROID_SHA256_FINGERPRINTS = fingerprint;
     const served = await request('GET', '/.well-known/assetlinks.json');
     assert.equal(served.status, 200);
     const statements = await served.json();
     assert.equal(statements[0].target.package_name, 'com.havs.ai');
     assert.deepEqual(statements[0].target.sha256_cert_fingerprints, [fingerprint]);
   } finally {
-    delete process.env.ANDROID_SHA256_FINGERPRINTS;
+    if (prevFingerprints === undefined) delete process.env.ANDROID_SHA256_FINGERPRINTS;
+    else process.env.ANDROID_SHA256_FINGERPRINTS = prevFingerprints;
+    if (prevPackage === undefined) delete process.env.ANDROID_PACKAGE_NAME;
+    else process.env.ANDROID_PACKAGE_NAME = prevPackage;
   }
 });
 
