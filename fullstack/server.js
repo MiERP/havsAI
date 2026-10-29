@@ -570,22 +570,20 @@ function cacheUploadText(row, text, kind) {
 }
 
 async function visionExtract(base64, mime) {
-  const config = ai.resolve('vision');
-  if (!config?.apiKey) return null;
+  const configs = typeof ai.resolveAll === 'function' ? ai.resolveAll('vision') : [ai.resolve('vision')].filter(Boolean);
+  if (!configs.length) return null;
   const prompt = 'Bạn là bộ OCR cho một gia sư. Hãy: 1) mô tả ngắn gọn ảnh; ' +
     '2) chép lại TOÀN BỘ chữ nhìn thấy, giữ công thức dưới dạng LaTeX; ' +
     '3) đánh dấu [không chắc] ở chỗ mờ hoặc không đọc được. Không giải bài. Trả lời tiếng Việt.';
-  const models = [config.model, config.fallbackModel].filter(Boolean);
-  for (const model of models) {
-    try {
-      const response = await fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-        body: JSON.stringify({
+  for (const config of configs) {
+    if (!config?.apiKey) continue;
+    const models = [...new Set([config.model, config.fallbackModel].filter(Boolean))];
+    for (const model of models) {
+      try {
+        const body = {
           model,
           stream: false,
           max_tokens: 1500,
-          ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
           messages: [{
             role: 'user',
             content: [
@@ -593,14 +591,22 @@ async function visionExtract(base64, mime) {
               { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } }
             ]
           }]
-        })
-      });
-      if (!response.ok) continue;
-      const json = await response.json();
-      const message = json.choices?.[0]?.message || {};
-      const text = String(message.content || message.reasoning_content || '').trim();
-      if (text) return { text, model };
-    } catch {}
+        };
+        if (config.reasoningEffort && config.provider === 'commandcode') {
+          body.reasoning_effort = config.reasoningEffort;
+        }
+        const response = await fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) continue;
+        const json = await response.json();
+        const message = json.choices?.[0]?.message || {};
+        const text = String(message.content || message.reasoning_content || '').trim();
+        if (text) return { text, model };
+      } catch {}
+    }
   }
   return null;
 }
@@ -711,29 +717,38 @@ function parseJsonLoose(text) {
 }
 
 async function callModelJson(system, user) {
-  const config = currentProviderConfig();
-  if (!config?.apiKey) return null;
-  const endpoint = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
-  const request = {
-    model: config.model,
-    stream: false,
-    max_tokens: 1800,
-    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-    response_format: { type: 'json_object' }
-  };
-  const call = () => fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-    body: JSON.stringify(request)
-  });
-  let response = await call();
-  if (!response.ok) {
-    delete request.response_format;
-    response = await call();
+  const configs = typeof ai.resolveAll === 'function' ? ai.resolveAll('chat') : [currentProviderConfig()].filter(Boolean);
+  for (const config of configs) {
+    if (!config?.apiKey) continue;
+    const models = [...new Set([config.model, config.fallbackModel].filter(Boolean))];
+    for (const model of models) {
+      try {
+        const endpoint = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
+        const request = {
+          model,
+          stream: false,
+          max_tokens: 1800,
+          messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+          response_format: { type: 'json_object' }
+        };
+        const call = () => fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+          body: JSON.stringify(request)
+        });
+        let response = await call();
+        if (!response.ok) {
+          delete request.response_format;
+          response = await call();
+        }
+        if (!response.ok) continue;
+        const json = await response.json();
+        const content = json?.choices?.[0]?.message?.content || null;
+        if (content) return content;
+      } catch {}
+    }
   }
-  if (!response.ok) return null;
-  const json = await response.json();
-  return json?.choices?.[0]?.message?.content || null;
+  return null;
 }
 
 function broadcastRealtime(userId, event, data) {
@@ -1391,10 +1406,23 @@ function route(req, res) {
             extraContext += `\nThe web_search tool has already run for this query and returned the real results below. Use them, cite source URLs, and do not say you lack search capability.\nWeb search results for "${query}":\n` + results.map((r, i) => `${i + 1}. ${r.title} — ${r.url}\n${r.snippet}`).join('\n') + '\n';
           }
         }
-        const providerConfig = currentProviderConfig();
-        if (providerConfig && providerConfig.apiKey) {
+        const providerConfigs = typeof ai.resolveAll === 'function' ? ai.resolveAll('chat') : [currentProviderConfig()].filter(Boolean);
+        if (providerConfigs.length) {
           const history = db.prepare('SELECT role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC LIMIT 20').all(chatId);
-          full = await streamChatCompletion(res, providerConfig, subject, history, extraContext);
+          for (const cfg of providerConfigs) {
+            if (!cfg?.apiKey) continue;
+            const candidateModels = [...new Set([cfg.model, cfg.fallbackModel].filter(Boolean))];
+            for (const candidateModel of candidateModels) {
+              try {
+                full = await streamChatCompletion(res, { ...cfg, model: candidateModel }, subject, history, extraContext);
+                if (full) break;
+              } catch {}
+            }
+            if (full) break;
+          }
+          if (!full) {
+            full = await streamMock(res, subject, text);
+          }
         } else {
           full = await streamMock(res, subject, text);
         }
