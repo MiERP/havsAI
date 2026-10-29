@@ -1287,51 +1287,69 @@ async function resizeImage(file, maxEdge = 1568, quality = 0.82) {
   }
 }
 
+const UPLOAD_MAX_MB = 20;
+
 async function uploadFile(file, target = 'chat') {
   if (!file) return;
-  if (file.size > 8 * 1024 * 1024) { toast('Tệp tối đa 8MB'); return; }
-  const prepared = await resizeImage(file);
-  let base64;
-  try {
-    base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(prepared);
-    });
-  } catch {
-    toast('Không đọc được tệp. Hãy chọn tệp khác.');
-    return;
-  }
-  try {
-    const data = await api('/api/uploads', {
-      method: 'POST',
-      body: JSON.stringify({ filename: prepared.name, mime: prepared.type, dataBase64: base64 })
-    });
-    if (target === 'wizard' && state.examWizard) {
-      state.examWizard.uploadId = data.id;
-      state.examWizard.uploadName = prepared.name;
-      state.examWizard.uploadPages = data.pageCount || 0;
-    } else {
-      state.uploadId = data.id;
-      state.imageUrl = data.url;
-      state.uploadName = prepared.name;
-      state.uploadPages = data.pageCount || 0;
-      state.uploadMime = data.mime || prepared.type;
-    }
+  if (file.size > UPLOAD_MAX_MB * 1024 * 1024) { toast(`Tệp tối đa ${UPLOAD_MAX_MB}MB`); return; }
+  const isWizard = target === 'wizard';
+  const isChat = target === 'chat';
+  if (isWizard && !state.examWizard) { toast('Kỳ ôn đã đóng, tài liệu không được gắn.'); return null; }
+  if (isWizard) {
+    state.examWizard.uploading = true;
     render();
-    toast(data.pageCount ? `Đã đính kèm PDF (${data.pageCount} trang)` : 'Đã đính kèm tệp');
-  } catch (error) {
-    const code = error.data?.error || error.message;
-    const messages = {
-      pdf_password_protected: 'PDF có mật khẩu, hãy bỏ mật khẩu trước khi gửi.',
-      pdf_too_many_pages: `PDF có ${error.data?.pages || '?'} trang, tối đa ${error.data?.max || 50}.`,
-      pdf_parse_failed: 'Không đọc được PDF. Hãy gửi ảnh trang để OCR.',
-      unsupported_type: 'Định dạng không hỗ trợ (PNG/JPEG/WebP/PDF).',
-      invalid_size: 'Tệp tối đa 8MB.'
-    };
-    toast(messages[code] || ('Không tải được tệp: ' + error.message));
   }
+  let uploaded = null;
+  try {
+    const prepared = await resizeImage(file);
+    let base64;
+    try {
+      base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(prepared);
+      });
+    } catch {
+      toast('Không đọc được tệp. Hãy chọn tệp khác.');
+      return;
+    }
+    try {
+      const data = await api('/api/uploads', {
+        method: 'POST',
+        body: JSON.stringify({ filename: prepared.name, mime: prepared.type, dataBase64: base64 })
+      });
+      uploaded = data;
+      if (isWizard) {
+        if (!state.examWizard) { toast('Kỳ ôn đã đóng, tài liệu chưa được gắn vào kỳ nào.'); return; }
+        state.examWizard.uploadId = data.id;
+        state.examWizard.uploadName = prepared.name;
+        state.examWizard.uploadPages = data.pageCount || 0;
+        toast(data.pageCount ? `Đã thêm tài liệu PDF (${data.pageCount} trang)` : 'Đã thêm tài liệu cho kỳ ôn');
+      } else if (isChat) {
+        state.uploadId = data.id;
+        state.imageUrl = data.url;
+        state.uploadName = prepared.name;
+        state.uploadPages = data.pageCount || 0;
+        state.uploadMime = data.mime || prepared.type;
+        toast(data.pageCount ? `Đã đính kèm PDF (${data.pageCount} trang)` : 'Đã đính kèm tệp');
+      }
+    } catch (error) {
+      const code = error.data?.error || error.message;
+      const messages = {
+        pdf_password_protected: 'PDF có mật khẩu, hãy bỏ mật khẩu trước khi gửi.',
+        pdf_too_many_pages: `PDF có ${error.data?.pages || '?'} trang, tối đa ${error.data?.max || 50}.`,
+        pdf_parse_failed: 'Không đọc được PDF. Hãy gửi ảnh trang để OCR.',
+        unsupported_type: 'Định dạng không hỗ trợ (PNG/JPEG/WebP/PDF).',
+        invalid_size: `Tệp tối đa ${error.data?.max || UPLOAD_MAX_MB}MB.`
+      };
+      toast(messages[code] || ('Không tải được tệp: ' + error.message));
+    }
+  } finally {
+    if (isWizard && state.examWizard) state.examWizard.uploading = false;
+    render();
+  }
+  return uploaded;
 }
 
 document.addEventListener('click', async (event) => {
@@ -1693,6 +1711,11 @@ document.addEventListener('change', async (event) => {
       state.examWizard.step = 3;
       render();
     }
+  } else if (event.target.id === 'prep-material') {
+    const prepId = event.target.dataset.prepId;
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (prepId) await attachPrepMaterial(prepId, file);
   } else if (event.target.id && event.target.id.startsWith('wizard-')) {
     await uploadFile(event.target.files?.[0], 'wizard');
   }

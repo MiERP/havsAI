@@ -284,6 +284,118 @@ test('exam prep generation falls back to a local plan when the AI provider is mo
   const body = await generated.json();
   assert.ok(Array.isArray(body.plan.days));
   assert.ok(body.plan.days.length > 0);
+  assert.equal(body.plan.generatedBy, 'fallback');
+});
+
+test('uploads accept files above 8MB and reject above the configured cap', async () => {
+  const cookie = await login('bigfile@example.com');
+  const accepted = await request('POST', '/api/uploads', {
+    filename: 'big.png', mime: 'image/png', dataBase64: Buffer.alloc(9 * 1024 * 1024, 7).toString('base64')
+  }, cookie);
+  assert.equal(accepted.status, 200);
+
+  const rejected = await request('POST', '/api/uploads', {
+    filename: 'huge.png', mime: 'image/png', dataBase64: Buffer.alloc(21 * 1024 * 1024, 7).toString('base64')
+  }, cookie);
+  assert.equal(rejected.status, 400);
+  const body = await rejected.json();
+  assert.equal(body.error, 'invalid_size');
+  assert.equal(body.max, 20);
+});
+
+test('prep detail exposes the attached material', async () => {
+  const cookie = await login('material@example.com');
+  const uploaded = await request('POST', '/api/uploads', {
+    filename: 'de-thi.pdf', mime: 'application/pdf', dataBase64: makePdf(1).toString('base64')
+  }, cookie);
+  const upload = await uploaded.json();
+  const created = await request('POST', '/api/preps', {
+    title: 'Co tai lieu', subject: 'math', uploadId: upload.id
+  }, cookie);
+  const prepId = (await created.json()).id;
+  const detail = await request('GET', `/api/exam-preps/${prepId}`, null, cookie);
+  assert.equal(detail.status, 200);
+  const { prep } = await detail.json();
+  assert.equal(prep.material.filename, 'de-thi.pdf');
+  assert.equal(prep.material.pages, 1);
+});
+
+test('an existing prep can be given a material before regenerating', async () => {
+  const cookie = await login('attach@example.com');
+  const uploaded = await request('POST', '/api/uploads', {
+    filename: 'bo-sung.pdf', mime: 'application/pdf', dataBase64: makePdf(1).toString('base64')
+  }, cookie);
+  const upload = await uploaded.json();
+  const created = await request('POST', '/api/preps', { title: 'Chua co tai lieu', subject: 'math' }, cookie);
+  const prepId = (await created.json()).id;
+
+  const attached = await request('POST', `/api/exam-preps/${prepId}/material`, { uploadId: upload.id }, cookie);
+  assert.equal(attached.status, 200);
+  assert.equal((await attached.json()).material.filename, 'bo-sung.pdf');
+
+  const detail = await request('GET', `/api/exam-preps/${prepId}`, null, cookie);
+  const { prep } = await detail.json();
+  assert.equal(prep.material.id, upload.id);
+
+  const invalid = await request('POST', `/api/exam-preps/${prepId}/material`, { uploadId: 'missing' }, cookie);
+  assert.equal(invalid.status, 400);
+});
+
+test('AI plans become lessons with sections, a worked example and practice', async () => {
+  const cookie = await login('lessons@example.com');
+  const created = await request('POST', '/api/preps', { title: 'On tap ham so', subject: 'math' }, cookie);
+  const prepId = (await created.json()).id;
+  const plan = {
+    version: 2,
+    title: 'On tap ham so',
+    subject: 'math',
+    examDate: '2026-11-08',
+    summary: 'Tom tat noi dung',
+    topics: ['Ham bac hai', 'Do thi'],
+    days: [{
+      day: 1,
+      focus: 'Ham bac hai',
+      topics: ['Dinh nghia', 'Do thi'],
+      tasks: ['Doc lai dinh nghia', 'Ve do thi'],
+      lesson: {
+        intro: 'Hom nay on lai dinh nghia ham bac hai.',
+        sections: [{ heading: 'Dinh nghia', body: 'Ham so y = ax^2 + bx + c voi a khac 0.' }],
+        example: { problem: 'Tim dinh cua (P)', steps: ['Tinh x = -b/2a'], answer: 'x = 1' }
+      },
+      practice: [{ question: 'Tim dinh cua y = x^2 - 2x', answer: 'x = 1' }]
+    }],
+    practice: [{ question: 'Tom tat dinh nghia', answer: 'Xem bai hoc.' }],
+    tips: ['Hoc deu moi ngay']
+  };
+  db.prepare('UPDATE preps SET plan_json = ? WHERE id = ?').run(JSON.stringify(plan), prepId);
+
+  const detail = await request('GET', `/api/exam-preps/${prepId}`, null, cookie);
+  assert.equal(detail.status, 200);
+  const { prep } = await detail.json();
+  assert.equal(prep.lessons.length, 1);
+  const lesson = prep.lessons[0];
+  assert.equal(lesson.intro, 'Hom nay on lai dinh nghia ham bac hai.');
+  assert.equal(lesson.sections.length, 1);
+  assert.match(lesson.sections[0].body, /ax\^2/);
+  assert.equal(lesson.example.answer, 'x = 1');
+  assert.equal(lesson.practice[0].question, 'Tim dinh cua y = x^2 - 2x');
+  assert.match(lesson.content, /Dinh nghia:/);
+  assert.deepEqual(prep.plan.topics, ['Ham bac hai', 'Do thi']);
+});
+
+test('regenerating a prep keeps completed lessons marked', async () => {
+  const cookie = await login('progress@example.com');
+  const created = await request('POST', '/api/preps', { title: 'Giu tien do', subject: 'math' }, cookie);
+  const prepId = (await created.json()).id;
+  await request('POST', `/api/preps/${prepId}/generate`, {}, cookie);
+
+  const completed = await request('POST', `/api/exam-preps/${prepId}/lessons/lesson-1/complete`, {}, cookie);
+  assert.equal(completed.status, 200);
+
+  const regenerated = await request('POST', `/api/exam-preps/${prepId}/generate`, {}, cookie);
+  assert.equal(regenerated.status, 200);
+  const { prep } = await regenerated.json();
+  assert.equal(prep.lessons[0].done, true);
 });
 
 test('users can create, rename, and delete their own chats while isolating other users', async () => {

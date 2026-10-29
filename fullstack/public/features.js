@@ -293,13 +293,20 @@ function renderExamDetail() {
   return `<div class="pad">
     <button class="btn ghost" data-action="nav" data-value="/exam-preps">← Ôn thi</button>
     <h1>${esc(prep.title)}</h1><p>${esc(subjectName(prep.subject))} · ${fmtDate(prep.examDate)} · ${esc(prep.status)}</p>
+    ${prep.material ? `<p class="small">📄 Tài liệu: ${esc(prep.material.filename)}${prep.material.pages ? ` · ${prep.material.pages} trang` : ''}</p>` : '<p class="small">Chưa gắn tài liệu nào cho kỳ ôn này.</p>'}
+    <div class="row" style="margin:8px 0">
+      <button class="btn ghost" data-action="prep-material-pick">${prep.material ? 'Đổi tài liệu' : 'Gắn tài liệu'}</button>
+      <input id="prep-material" type="file" accept="image/*,application/pdf" data-prep-id="${prep.id}" class="hidden" />
+    </div>
+    ${prep.plan?.generatedBy === 'fallback' ? `<div class="info-box"><span>ⓘ</span><p><b>AI chưa tạo được nội dung</b>${prep.plan?.error ? ` (${esc(prep.plan.error)})` : ''}, nên kế hoạch dưới đây chỉ là mẫu chung. Bấm “Tạo lại bằng AI” để sinh bài học từ tài liệu.</p></div>` : ''}
     <div class="exam-detail-grid">
       <div>
         <div class="card" style="margin-bottom:14px"><h2>Tiến độ</h2><p>${mastery.completedLessons || 0}/${mastery.totalLessons || prep.lessons?.length || 0} bài · ${mastery.attempts || 0} lần làm · TB ${mastery.averageScore || 0}%</p>
-          <div class="row"><button class="btn secondary" data-action="exam-share" data-value="${prep.id}">Chia sẻ</button><button class="btn ghost" data-action="nav" data-value="/calendar">Thêm lịch</button></div>
+          <div class="row"><button class="btn secondary" data-action="exam-share" data-value="${prep.id}">Chia sẻ</button><button class="btn ghost" data-action="exam-regenerate" data-value="${prep.id}">Tạo lại bằng AI</button><button class="btn ghost" data-action="nav" data-value="/calendar">Thêm lịch</button></div>
           ${prep.shareId ? `<p class="small">Link chia sẻ: <code>/share/a/${esc(prep.shareId)}</code></p>` : ''}
         </div>
         <div class="card" style="margin-bottom:14px"><h2>Kế hoạch</h2>
+          ${prep.plan?.topics?.length ? `<p class="small">Chủ đề: ${prep.plan.topics.map((topic) => esc(topic)).join(' · ')}</p>` : ''}
           ${(prep.plan?.days || []).map((day) => `<div style="margin:12px 0"><b>Ngày ${esc(day.day)} · ${esc(day.focus || '')}</b><ul>${(day.tasks || []).map((task) => `<li>${esc(task)}</li>`).join('')}</ul></div>`).join('') || '<p>Chưa có kế hoạch.</p>'}
           ${prep.plan?.summary ? `<p>${esc(prep.plan.summary)}</p>` : ''}
         </div>
@@ -323,10 +330,20 @@ function renderLesson() {
   const prep = state.exam;
   const lesson = prep?.lessons?.find((item) => item.id === state.route.params.lessonId);
   if (!lesson) return `<div class="pad"><p>Không tìm thấy bài học.</p></div>`;
+  const sections = Array.isArray(lesson.sections) ? lesson.sections : [];
+  const practice = Array.isArray(lesson.practice) ? lesson.practice : [];
+  const example = lesson.example && (lesson.example.problem || (lesson.example.steps || []).length) ? lesson.example : null;
+  const empty = !lesson.intro && !sections.length && !example;
   return `<div class="pad">
     <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">← ${esc(prep.title)}</button>
     <h1>${esc(lesson.title)}</h1>
-    <div class="card"><p style="white-space:pre-wrap">${esc(lesson.content || '')}</p></div>
+    ${lesson.topics?.length ? `<p class="small">Chủ đề: ${lesson.topics.map((topic) => esc(topic)).join(' · ')}</p>` : ''}
+    ${prep.plan?.generatedBy === 'fallback' ? `<div class="info-box"><span>ⓘ</span><p>AI chưa tạo được nội dung nên bài này chỉ có khung nhiệm vụ. <button class="btn ghost" data-action="exam-regenerate" data-value="${prep.id}">Tạo lại bằng AI</button></p></div>` : ''}
+    ${lesson.intro ? `<div class="card" style="margin-bottom:14px"><p style="white-space:pre-wrap">${esc(lesson.intro)}</p></div>` : ''}
+    ${sections.map((section) => `<div class="card" style="margin-bottom:14px">${section.heading ? `<h2>${esc(section.heading)}</h2>` : ''}<p style="white-space:pre-wrap">${esc(section.body || '')}</p></div>`).join('')}
+    ${example ? `<div class="card" style="margin-bottom:14px"><h2>Ví dụ</h2>${example.problem ? `<p><b>Đề bài:</b> ${esc(example.problem)}</p>` : ''}${(example.steps || []).map((step, index) => `<p>${index + 1}. ${esc(step)}</p>`).join('')}${example.answer ? `<p><b>Đáp số:</b> ${esc(example.answer)}</p>` : ''}</div>` : ''}
+    ${practice.length ? `<div class="card" style="margin-bottom:14px"><h2>Luyện tập</h2>${practice.map((item, index) => `<div class="item" style="margin-bottom:8px"><p><b>Câu ${index + 1}.</b> ${esc(item.question)}</p><details><summary>Xem đáp án</summary><p style="white-space:pre-wrap">${esc(item.answer || 'Chưa có đáp án.')}</p></details></div>`).join('')}</div>` : ''}
+    ${empty ? `<div class="card"><p class="small">Bài học này chưa có nội dung chi tiết. Hãy tạo lại bằng AI.</p></div>` : ''}
     ${!lesson.done ? `<button class="btn" style="margin-top:14px" data-action="lesson-complete" data-value="${prep.id}|${lesson.id}">Đánh dấu đã học</button>` : '<p class="small">Đã hoàn thành bài này.</p>'}
   </div>`;
 }
@@ -614,6 +631,25 @@ document.addEventListener('click', async (event) => {
       toast('Đã tạo link chia sẻ');
       await loadRouteData(); render();
     } catch (error) { toast(error.message); }
+    return;
+  }
+  if (action === 'prep-material-pick') {
+    document.getElementById('prep-material')?.click();
+    return;
+  }
+  if (action === 'exam-regenerate') {
+    try {
+      toast('Đang tạo lại nội dung bằng AI…');
+      const data = await api(`/api/exam-preps/${value}/generate`, { method: 'POST' });
+      await loadRouteData();
+      render();
+      const plan = data?.prep?.plan || data?.plan;
+      toast(plan?.generatedBy === 'ai'
+        ? 'Đã tạo nội dung mới từ tài liệu'
+        : `AI chưa phản hồi: ${plan?.error || 'thử lại sau'}`);
+    } catch (error) {
+      toast(error.message);
+    }
     return;
   }
   if (action === 'lesson-complete') {
@@ -905,14 +941,39 @@ function renderExamWizard() {
     <input id="wizard-file" type="file" accept="image/*,application/pdf" class="hidden" />
     ${wizard.uploadName ? `<div class="item attach-preview"><span>📄</span><div class="grow"><b>${esc(wizard.uploadName)}</b><small>${wizard.uploadPages ? `${wizard.uploadPages} trang` : 'Đã tải lên'}</small></div><button class="btn ghost" data-action="wizard-remove-upload">Bỏ</button></div>` : ''}
     <div class="info-box"><span>ⓘ</span><p><b>Vì sao tài liệu của bạn quan trọng</b><br>Bạn càng thêm nhiều tài liệu, havsAI càng hiểu rõ hơn. havsAI xác định các chủ đề, lập kế hoạch và tạo bài luyện sát với bài kiểm tra của bạn.</p></div>
-    <button class="btn ghost" data-action="wizard-create">Tiếp tục không có tài liệu</button>
-    <button class="btn" data-action="wizard-create">Tiếp tục${wizard.uploadId ? ' với tài liệu' : ''}</button>
+    ${wizard.uploading ? '<p class="small">Đang tải tài liệu lên…</p>' : ''}
+    <button class="btn ghost" data-action="wizard-create"${wizard.uploading ? ' disabled' : ''}>Tiếp tục không có tài liệu</button>
+    <button class="btn" data-action="wizard-create"${wizard.uploading ? ' disabled' : ''}>Tiếp tục${wizard.uploadId ? ' với tài liệu' : ''}</button>
   </div>`;
+}
+
+async function attachPrepMaterial(prepId, file) {
+  if (!file) return;
+  toast('Đang tải tài liệu lên…');
+  const uploaded = await uploadFile(file, 'prep');
+  if (!uploaded) return;
+  try {
+    await api(`/api/exam-preps/${prepId}/material`, {
+      method: 'POST',
+      body: JSON.stringify({ uploadId: uploaded.id })
+    });
+    toast('Đã gắn tài liệu, đang tạo bài học…');
+    const generated = await api(`/api/exam-preps/${prepId}/generate`, { method: 'POST' });
+    await loadRouteData();
+    render();
+    const plan = generated?.prep?.plan || generated?.plan;
+    toast(plan?.generatedBy === 'ai'
+      ? 'Đã tạo bài học từ tài liệu'
+      : `AI chưa phản hồi: ${plan?.error || 'thử lại sau'}`);
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 async function createExamFromWizard() {
   const wizard = state.examWizard;
   if (!wizard) return;
+  if (wizard.uploading) { toast('Đang tải tài liệu lên, chờ một chút'); return; }
   const title = `${subjectName(wizard.subject)}${wizard.examDate ? ` · ${wizard.examDate}` : ''}`;
   try {
     const created = await api('/api/preps', {
@@ -925,9 +986,17 @@ async function createExamFromWizard() {
         source: wizard.source
       })
     });
-    try { await api(`/api/preps/${created.id}/generate`, { method: 'POST' }); } catch {}
+    let plan = null;
+    try {
+      const generated = await api(`/api/preps/${created.id}/generate`, { method: 'POST' });
+      plan = generated?.plan || null;
+    } catch (error) {
+      toast(`Chưa sinh được kế hoạch: ${error.message}`);
+    }
     state.examWizard = null;
-    toast('Đã tạo kỳ thi và sinh kế hoạch');
+    toast(plan?.generatedBy === 'ai'
+      ? 'Đã tạo kỳ ôn và bài học từ tài liệu'
+      : 'Đã tạo kỳ ôn nhưng AI chưa sinh được nội dung');
     navigate(`/exam-preps/${created.id}`);
   } catch (error) {
     toast(error.message);

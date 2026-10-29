@@ -45,6 +45,9 @@ const ALLOW_DEV_OTP = !IS_PRODUCTION && process.env.ALLOW_DEV_OTP === 'true';
 const PDF_MAX_PAGES = Number(process.env.PDF_MAX_PAGES || 50);
 const PDF_VISION_PAGES = Number(process.env.PDF_VISION_PAGES || 3);
 const PDF_VISION_CONCURRENCY = Number(process.env.PDF_VISION_CONCURRENCY || 2);
+const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 20);
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+const MAX_UPLOAD_BODY = Math.ceil(MAX_UPLOAD_BYTES * 1.4) + 65536;
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const db = new DatabaseSync(DB_PATH);
@@ -229,8 +232,8 @@ function readBody(req, limit = 12 * 1024 * 1024) {
   });
 }
 
-async function readJson(req) {
-  const raw = await readBody(req);
+async function readJson(req, limit) {
+  const raw = await readBody(req, limit);
   if (!raw.length) return {};
   try { return JSON.parse(raw.toString('utf8')); } catch { throw new Error('invalid_json'); }
 }
@@ -417,6 +420,110 @@ function fallbackPlan(prep) {
       { question: 'Làm một câu vận dụng trong đề mẫu.', answer: 'So sánh từng bước với lời giải.' }
     ],
     tips: ['Học 25 phút, nghỉ 5 phút', 'Ghi lỗi sai vào một nơi duy nhất', 'Hỏi havsAI ngay khi bí quá 5 phút']
+  };
+}
+
+const PLAN_SCHEMA =
+  '{"version":2,"title":string,"subject":string,"examDate":string,"summary":string,"topics":[string],' +
+  '"days":[{"day":number,"focus":string,"topics":[string],"tasks":[string],' +
+  '"lesson":{"intro":string,"sections":[{"heading":string,"body":string}],' +
+  '"example":{"problem":string,"steps":[string],"answer":string}},' +
+  '"practice":[{"question":string,"answer":string}]}],' +
+  '"practice":[{"question":string,"answer":string}],"tips":[string]}';
+
+const PLAN_SYSTEM =
+  'Bạn là havsAI, chuyên gia lập kế hoạch và soạn bài ôn thi cho học sinh Việt Nam. ' +
+  'Chỉ trả về một đối tượng JSON hợp lệ, không kèm markdown hay giải thích. Schema: ' +
+  PLAN_SCHEMA +
+  '. Viết công thức bằng LaTeX trong $...$ (ví dụ $\\frac{1}{2}$, $x^{2}$, $v = \\frac{s}{t}$), không dùng ảnh.';
+
+function buildPlanPrompt(prep, materialName, materialText) {
+  const lines = [
+    `Môn: ${prep.subject || 'chung'}`,
+    `Tên kỳ ôn: ${prep.title || ''}`,
+    `Ngày thi: ${prep.exam_date || 'chưa rõ'}`
+  ];
+  if (materialText) {
+    lines.push(
+      `Tài liệu của học sinh (${materialName || 'tài liệu tải lên'}):`,
+      materialText,
+      'Yêu cầu: bám sát tài liệu trên. Nêu 5-8 chủ đề thật sự có trong tài liệu.'
+    );
+  } else {
+    lines.push('Không có tài liệu đính kèm: dựa vào chuẩn kiến thức phổ thông của môn này.');
+  }
+  lines.push(
+    'Tạo đúng 5 ngày. Mỗi ngày: 1-2 chủ đề, 3-5 nhiệm vụ, và một bài học tự học gồm intro 2-3 câu, ' +
+    '2 mục sections (heading và body giải thích, có công thức LaTeX), một ví dụ có problem, steps, answer, ' +
+    'và 2 câu practice (question và answer). Cuối cùng thêm 3 câu luyện tập tổng và 3 mẹo. ' +
+    'Viết ngắn gọn để vừa 5000 token.'
+  );
+  return lines.join('\n');
+}
+
+async function generatePrepPlan(prep, userId) {
+  let materialName = '';
+  let materialText = '';
+  let error = '';
+  if (prep.material_upload_id) {
+    try {
+      const row = findUpload(userId, prep.material_upload_id);
+      if (row) {
+        materialName = row.filename || '';
+        const material = /^image\//i.test(row.mime || '')
+          ? await analyzeImageUpload(userId, prep.material_upload_id)
+          : await extractUploadText(userId, prep.material_upload_id);
+        if (material?.text) materialText = String(material.text).slice(0, 14000);
+      }
+    } catch (cause) {
+      error = `material_${cause.message}`;
+    }
+  }
+
+  const result = await callModelJson(PLAN_SYSTEM, buildPlanPrompt(prep, materialName, materialText), { maxTokens: 5000 });
+  if (result.error) error = result.error;
+  let plan = parseJsonLoose(result.content);
+  const usedAi = Boolean(plan && Array.isArray(plan.days) && plan.days.length);
+  if (usedAi) {
+    plan.version = 2;
+    plan.days = plan.days.slice(0, 7);
+  } else {
+    plan = fallbackPlan(prep);
+  }
+  plan.generatedBy = usedAi ? 'ai' : 'fallback';
+  if (materialName) plan.materialName = materialName;
+  if (!usedAi && error) plan.error = String(error).slice(0, 160);
+  return { plan, usedAi };
+}
+
+function buildLessonFromDay(day, index) {
+  const lesson = day.lesson && typeof day.lesson === 'object' ? day.lesson : {};
+  const intro = typeof lesson.intro === 'string' ? lesson.intro : '';
+  const sections = Array.isArray(lesson.sections)
+    ? lesson.sections.filter((section) => section && (section.heading || section.body))
+    : [];
+  const example = lesson.example && typeof lesson.example === 'object' && (lesson.example.problem || lesson.example.steps)
+    ? lesson.example
+    : null;
+  const practice = Array.isArray(day.practice)
+    ? day.practice.filter((item) => item && item.question)
+    : [];
+  const content = [
+    intro,
+    ...sections.map((section) => `${section.heading ? `${section.heading}: ` : ''}${section.body || ''}`)
+  ].filter(Boolean).join('\n\n') || (day.tasks || []).map((task) => `• ${task}`).join('\n');
+  return {
+    id: `lesson-${index + 1}`,
+    title: `Ngày ${day.day || index + 1}: ${day.focus || 'Ôn tập'}`,
+    focus: day.focus || '',
+    topics: Array.isArray(day.topics) ? day.topics : [],
+    intro,
+    sections,
+    example,
+    practice,
+    content,
+    tasks: day.tasks || [],
+    done: false
   };
 }
 
@@ -731,39 +838,49 @@ function parseJsonLoose(text) {
   try { return JSON.parse(cleaned.slice(start, end + 1)); } catch { return null; }
 }
 
-async function callModelJson(system, user) {
+async function callModelJson(system, user, options = {}) {
   const configs = typeof ai.resolveAll === 'function' ? ai.resolveAll('chat') : [currentProviderConfig()].filter(Boolean);
+  let lastError = '';
   for (const config of configs) {
     if (!config?.apiKey) continue;
     const models = [...new Set([config.model, config.fallbackModel].filter(Boolean))];
     for (const model of models) {
-      try {
-        const endpoint = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
-        const request = {
-          model,
-          stream: false,
-          max_tokens: 1800,
-          messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-          response_format: { type: 'json_object' }
-        };
-        const call = () => fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-          body: JSON.stringify(request)
-        });
-        let response = await call();
-        if (!response.ok) {
-          delete request.response_format;
-          response = await call();
+      const endpoint = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
+      const base = {
+        model,
+        stream: false,
+        max_tokens: options.maxTokens || 3000,
+        messages: [{ role: 'system', content: system }, { role: 'user', content: user }]
+      };
+      const attempts = [{ ...base, response_format: { type: 'json_object' } }];
+      if (config.provider === 'commandcode') {
+        attempts[0].reasoning_effort = 'off';
+        attempts.push({ ...base, reasoning_effort: 'off' });
+      }
+      attempts.push(base);
+      for (const request of attempts) {
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+            body: JSON.stringify(request),
+            signal: AbortSignal.timeout(90000)
+          });
+          if (!response.ok) {
+            lastError = `http_${response.status}`;
+            continue;
+          }
+          const json = await response.json();
+          const content = String(json?.choices?.[0]?.message?.content || '').trim();
+          if (content) return { content, error: '', model };
+          lastError = 'empty_content';
+        } catch (error) {
+          lastError = error.name === 'TimeoutError' ? 'timeout' : error.message;
         }
-        if (!response.ok) continue;
-        const json = await response.json();
-        const content = json?.choices?.[0]?.message?.content || null;
-        if (content) return content;
-      } catch {}
+      }
     }
   }
-  return null;
+  return { content: null, error: lastError || 'no_provider' };
 }
 
 function broadcastRealtime(userId, event, data) {
@@ -884,14 +1001,16 @@ function ensureShareId(prep) {
 function ensurePrepExtras(prep) {
   const plan = parseJsonValue(prep.plan_json, null) || fallbackPlan(prep);
   let lessons = parseJsonValue(prep.lessons_json, null);
-  if (!Array.isArray(lessons) || !lessons.length) {
-    lessons = (plan.days || []).map((day, index) => ({
-      id: `lesson-${index + 1}`,
-      title: `Ngày ${day.day || index + 1}: ${day.focus || 'Ôn tập'}`,
-      content: (day.tasks || []).map((task) => `• ${task}`).join('\n'),
-      tasks: day.tasks || [],
-      done: false
-    }));
+  const storedLessons = Array.isArray(lessons) ? lessons : [];
+  const needsLessons = !storedLessons.length
+    || (plan.version >= 2 && storedLessons.some((lesson) => !Array.isArray(lesson.sections)));
+  if (needsLessons) {
+    const doneIds = new Set(storedLessons.filter((lesson) => lesson.done).map((lesson) => lesson.id));
+    lessons = (plan.days || []).map((day, index) => {
+      const lesson = buildLessonFromDay(day, index);
+      if (doneIds.has(lesson.id)) lesson.done = true;
+      return lesson;
+    });
   }
   let challenges = parseJsonValue(prep.challenges_json, null);
   if (!Array.isArray(challenges) || !challenges.length) {
@@ -952,6 +1071,14 @@ function ensurePrepExtras(prep) {
   };
 }
 
+function prepMaterial(enriched) {
+  if (!enriched.material_upload_id) return null;
+  const row = db.prepare('SELECT id, filename, mime, page_count, extracted_kind FROM uploads WHERE user_id = ? AND id = ?')
+    .get(enriched.user_id, enriched.material_upload_id);
+  if (!row) return null;
+  return { id: row.id, filename: row.filename, mime: row.mime, pages: row.page_count, kind: row.extracted_kind || null };
+}
+
 function prepView(prep) {
   const enriched = ensurePrepExtras(prep);
   return {
@@ -966,10 +1093,29 @@ function prepView(prep) {
     createdAt: enriched.created_at,
     updatedAt: enriched.updated_at,
     plan: parseJsonValue(enriched.plan_json, null),
+    material: prepMaterial(enriched),
     lessons: parseJsonValue(enriched.lessons_json, []),
     challenges: parseJsonValue(enriched.challenges_json, []),
     mockExams: parseJsonValue(enriched.mock_json, []),
     mastery: parseJsonValue(enriched.mastery_json, {})
+  };
+}
+
+async function regeneratePrep(prep, userId) {
+  const previous = parseJsonValue(prep.lessons_json, []) || [];
+  const doneIds = new Set(previous.filter((lesson) => lesson.done).map((lesson) => lesson.id));
+  const { plan } = await generatePrepPlan(prep, userId);
+  db.prepare('UPDATE preps SET status = ?, plan_json = ?, lessons_json = NULL, challenges_json = NULL, mock_json = NULL, updated_at = ? WHERE id = ?')
+    .run('ready', JSON.stringify(plan), now(), prep.id);
+  const updated = db.prepare('SELECT * FROM preps WHERE id = ?').get(prep.id);
+  const view = prepView(updated);
+  if (!doneIds.size) return view;
+  const lessons = view.lessons.map((lesson) => (doneIds.has(lesson.id) ? { ...lesson, done: true } : lesson));
+  db.prepare('UPDATE preps SET lessons_json = ? WHERE id = ?').run(JSON.stringify(lessons), prep.id);
+  return {
+    ...view,
+    lessons,
+    mastery: { ...view.mastery, completedLessons: lessons.filter((lesson) => lesson.done).length }
   };
 }
 
@@ -1225,11 +1371,11 @@ function route(req, res) {
   }
   if (p === '/api/uploads' && req.method === 'POST') {
     const ctx = requireUser(req, res); if (!ctx) return;
-    return readJson(req).then(async (body) => {
+    return readJson(req, MAX_UPLOAD_BODY).then(async (body) => {
       const mime = String(body.mime || '');
       if (!/^image\/(png|jpeg|webp)$|^application\/pdf$/.test(mime)) return send(res, 400, { error: 'unsupported_type' });
       const raw = Buffer.from(String(body.dataBase64 || ''), 'base64');
-      if (!raw.length || raw.length > 8 * 1024 * 1024) return send(res, 400, { error: 'invalid_size' });
+      if (!raw.length || raw.length > MAX_UPLOAD_BYTES) return send(res, 400, { error: 'invalid_size', max: MAX_UPLOAD_MB });
       const id = uid();
       const safe = String(body.filename || 'file').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80);
       let pageCount = null;
@@ -1616,34 +1762,9 @@ function route(req, res) {
     return (async () => {
       const prep = db.prepare('SELECT * FROM preps WHERE id = ? AND user_id = ?').get(prepGenerate[1], ctx.user.id);
       if (!prep) return send(res, 404, { error: 'not_found' });
-      const system = 'Bạn là havsAI, chuyên gia lập kế hoạch ôn thi cho học sinh. ' +
-        'Chỉ trả về JSON hợp lệ, không kèm markdown. Schema: ' +
-        '{"title":string,"subject":string,"examDate":string,"summary":string,' +
-        '"days":[{"day":number,"focus":string,"tasks":[string]}],' +
-        '"practice":[{"question":string,"answer":string}],"tips":[string]}.';
-      let materialContext = '';
-      if (prep.material_upload_id) {
-        try {
-          const row = findUpload(ctx.user.id, prep.material_upload_id);
-          const material = row && /^image\//i.test(row.mime || '')
-            ? await analyzeImageUpload(ctx.user.id, prep.material_upload_id)
-            : await extractUploadText(ctx.user.id, prep.material_upload_id);
-          if (material?.text) {
-            materialContext = `\nTài liệu tham khảo (${material.filename || 'tài liệu'}):\n${String(material.text).slice(0, 6000)}\n`;
-          }
-        } catch {}
-      }
-      const userPrompt = `Môn: ${prep.subject}\nTên đề: ${prep.title}\nNgày thi: ${prep.exam_date || 'chưa rõ'}\n${materialContext}` +
-        'Hãy tạo kế hoạch 5 ngày, 3-5 nhiệm vụ mỗi ngày, 3 câu luyện tập và 3 mẹo.';
-      let plan = null;
-      try {
-        const raw = await callModelJson(system, userPrompt);
-        plan = parseJsonLoose(raw);
-      } catch {}
-      if (!plan || !Array.isArray(plan.days)) plan = fallbackPlan(prep);
-      db.prepare('UPDATE preps SET status = ?, plan_json = ?, updated_at = ? WHERE id = ?').run('ready', JSON.stringify(plan), now(), prep.id);
+      const view = await regeneratePrep(prep, ctx.user.id);
       broadcastRealtime(ctx.user.id, 'prep.updated', { prepId: prep.id });
-      return send(res, 200, { plan });
+      return send(res, 200, { plan: view.plan, prep: view });
     })().catch((e) => send(res, 400, { error: e.message }));
   }
   const prepDetail = p.match(/^\/api\/preps\/([^/]+)$/);
@@ -1736,19 +1857,22 @@ function route(req, res) {
     return (async () => {
       const prep = db.prepare('SELECT * FROM preps WHERE id = ? AND user_id = ?').get(examGenerate[1], ctx.user.id);
       if (!prep) return send(res, 404, { error: 'not_found' });
-      const system = 'Bạn là havsAI, chuyên gia lập kế hoạch ôn thi cho học sinh. Chỉ trả về JSON hợp lệ, không kèm markdown. Schema: ' +
-        '{"title":string,"subject":string,"examDate":string,"summary":string,"days":[{"day":number,"focus":string,"tasks":[string]}],"practice":[{"question":string,"answer":string}],"tips":[string]}.';
-      const userPrompt = `Môn: ${prep.subject}\nTên đề: ${prep.title}\nNgày thi: ${prep.exam_date || 'chưa rõ'}\nHãy tạo kế hoạch 5 ngày, 3-5 nhiệm vụ mỗi ngày, 3 câu luyện tập và 3 mẹo.`;
-      let plan = null;
-      try { plan = parseJsonLoose(await callModelJson(system, userPrompt)); } catch {}
-      if (!plan || !Array.isArray(plan.days)) plan = fallbackPlan(prep);
-      db.prepare('UPDATE preps SET status = ?, plan_json = ?, lessons_json = NULL, challenges_json = NULL, mock_json = NULL, mastery_json = NULL, updated_at = ? WHERE id = ?')
-        .run('ready', JSON.stringify(plan), now(), prep.id);
-      const updated = db.prepare('SELECT * FROM preps WHERE id = ?').get(prep.id);
-      const view = prepView(updated);
+      const view = await regeneratePrep(prep, ctx.user.id);
       broadcastRealtime(ctx.user.id, 'prep.updated', { prepId: prep.id });
-      return send(res, 200, { plan, prep: view });
+      return send(res, 200, { plan: view.plan, prep: view });
     })().catch((e) => send(res, 400, { error: e.message }));
+  }
+  const examMaterial = p.match(/^\/api\/exam-preps\/([^/]+)\/material$/);
+  if (examMaterial && req.method === 'POST') {
+    const ctx = requireUser(req, res); if (!ctx) return;
+    return readJson(req).then((body) => {
+      const prep = db.prepare('SELECT * FROM preps WHERE id = ? AND user_id = ?').get(examMaterial[1], ctx.user.id);
+      if (!prep) return send(res, 404, { error: 'not_found' });
+      const row = findUpload(ctx.user.id, String(body.uploadId || ''));
+      if (!row) return send(res, 400, { error: 'invalid_upload' });
+      db.prepare('UPDATE preps SET material_upload_id = ?, updated_at = ? WHERE id = ?').run(row.id, now(), prep.id);
+      return send(res, 200, { material: { id: row.id, filename: row.filename, pages: row.page_count } });
+    }).catch((e) => send(res, 400, { error: e.message }));
   }
   const examShare = p.match(/^\/api\/exam-preps\/([^/]+)\/share$/);
   if (examShare && req.method === 'POST') {
@@ -1903,11 +2027,12 @@ function route(req, res) {
       let name = String(body.name || '').slice(0, 80) || `App ${new Date().toLocaleDateString('vi-VN')}`;
       let html = '';
       try {
-        const raw = await callModelJson(
+        const result = await callModelJson(
           'Bạn là lập trình viên tạo app học tập. Chỉ trả về JSON hợp lệ: {"name":string,"html":string}. HTML phải tự chứa CSS/JS, không tải tài nguyên ngoài, chạy được trong iframe sandbox.',
-          `Tạo một web app nhỏ, giao diện tối, tiếng Việt, cho yêu cầu: ${prompt}. Trả về HTML đầy đủ trong trường html.`
+          `Tạo một web app nhỏ, giao diện tối, tiếng Việt, cho yêu cầu: ${prompt}. Trả về HTML đầy đủ trong trường html.`,
+          { maxTokens: 6000 }
         );
-        const parsed = parseJsonLoose(raw);
+        const parsed = parseJsonLoose(result.content);
         if (parsed?.html && String(parsed.html).length > 80) {
           html = String(parsed.html).slice(0, 60000);
           if (parsed.name) name = String(parsed.name).slice(0, 80);

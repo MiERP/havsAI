@@ -122,6 +122,20 @@ curl http://localhost:3000/api/health
 - `/api/tts` hiện vẫn dùng Google Translate TTS (`tl=vi`) và **bỏ qua** tham số `voice`;
   bốn giọng trong `/api/voices` chỉ khác nhau ở tốc độ phát trên client.
 
+## Ôn thi từ tài liệu
+
+- Tài liệu tải ở wizard hoặc nút “Gắn tài liệu” trong trang kỳ ôn; lưu ở bảng `uploads`
+  (dùng chung với chat, mỗi bản ghi thuộc một `user_id`). Trang kỳ ôn hiển thị tài liệu đã gắn.
+- `POST /api/preps/:id/generate` và `/api/exam-preps/:id/generate` gửi tối đa 14.000 ký tự
+  tài liệu cho model, yêu cầu schema v2: `topics`, 5 ngày, mỗi ngày có bài học tự học
+  (`intro`, `sections` có LaTeX, `example` có lời giải, 2 câu `practice`).
+- Bài học hiển thị tại `/exam-preps/:id/lessons/:lessonId`; “Đánh dấu đã học” lưu trong
+  `preps.lessons_json` và được giữ nguyên khi tạo lại nội dung.
+- Nếu model lỗi/timeout/trả JSON hỏng, kế hoạch rơi về mẫu chung, `plan.generatedBy = "fallback"`,
+  trang ghi rõ lỗi kèm nút “Tạo lại bằng AI”.
+- Giới hạn tải lên: `MAX_UPLOAD_MB` (mặc định 20MB, khớp `UPLOAD_MAX_MB` phía client);
+  PDF vẫn giới hạn `PDF_MAX_PAGES` trang.
+
 ## Luồng đã triển khai
 
 - **Chat tools**
