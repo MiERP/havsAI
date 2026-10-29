@@ -114,16 +114,19 @@ function createAi({ db, secrets }) {
   }
 
   function resolveAll(kind) {
+    const rows = providerRows(kind);
+    if (rows.length && rows[0].provider === 'mock') return [];
+    if (!rows.length && defaults.selected === 'mock') return [];
     const list = [];
     const seen = new Set();
     const push = (cfg) => {
-      if (!cfg || !cfg.apiKey || !cfg.baseUrl) return;
+      if (!cfg || cfg.provider === 'mock' || !cfg.apiKey || !cfg.baseUrl) return;
       const key = `${cfg.baseUrl}|${cfg.model}|${cfg.apiKey.slice(-6)}`;
       if (seen.has(key)) return;
       seen.add(key);
       list.push(cfg);
     };
-    for (const row of providerRows(kind)) {
+    for (const row of rows) {
       push(fromRow(row));
     }
     if (kind === 'vision') {
