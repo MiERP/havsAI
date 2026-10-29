@@ -99,6 +99,29 @@ curl http://localhost:3000/api/health
 - Lưu ý: DeepSeek Vision là bản experimental; nếu trả rỗng, kiểm tra
   `reasoning_effort=off` và tăng `max_tokens`.
 
+## Đọc thành tiếng (TTS)
+
+- `fullstack/public/speech.js` chuyển câu trả lời thành lời nói tiếng Việt trước khi gửi TTS:
+  phân số (`1/2` → "1 phần 2", `$\frac{1}{2}$` → "một phần hai"), lũy thừa, căn, đơn vị
+  (`m/s`, `m/s²`, `kg/m³`, `mol/L`), ký hiệu (`%`, `°C`, `×`, `÷`, `≈`, `≤`, `√`, `π`),
+  phương trình hóa học (`\to` → "tạo thành", `\rightleftharpoons` → "thuận nghịch",
+  `H_2O` → "H hai O", trạng thái rắn/khí/lỏng/dung dịch) và ký hiệu sinh học
+  (`5'`, cặp bazơ `A-T` → "A liên kết T"). Bỏ qua quy tắc tiếng Việt khi `subject = english`.
+- **Ngắt nghỉ**: `splitForSpeech()` chia câu trả lời tại dấu câu và gán khoảng lặng —
+  hết câu `.` `!` `?` `…` 420 ms, dấu hai chấm 340 ms, chấm phẩy 280 ms, phẩy 200 ms,
+  cắt do dài câu 180 ms. Không cắt sai trong số thập phân (`3,14`, `1.5`) hay giờ (`10:30`),
+  cắt dài câu ở ranh giới từ (tối đa ~165 ký tự/lần) và gộp các mảnh vụn.
+  Client phát tuần tự từng câu bằng hai thẻ audio luân phiên, tải trước câu kế tiếp nên
+  khoảng lặng đúng như cấu hình thay vì bị độ trễ mạng chen vào.
+- `app.js` chỉ có **một chủ sở hữu phiên đọc** (`speechEpoch`): mỗi lần đọc hủy cả audio MP3
+  và Web Speech, callback của lần đọc cũ bị bỏ qua nên không còn hai giọng chồng nhau.
+  Danh sách giọng được làm mới qua `voiceschanged` và chọn theo ngôn ngữ + giới tính.
+  Nếu một câu MP3 lỗi, các câu còn lại được đọc bằng giọng thiết bị (không đọc lại phần đã đọc).
+- Prompt hệ thống (`server.js`, `FORMULA_RULES`) yêu cầu model xuất mọi công thức bằng LaTeX
+  trong `$...$` cho Toán, Lý, Hóa, Sinh để KaTeX render và bộ chuyển đổi đọc đúng.
+- `/api/tts` hiện vẫn dùng Google Translate TTS (`tl=vi`) và **bỏ qua** tham số `voice`;
+  bốn giọng trong `/api/voices` chỉ khác nhau ở tốc độ phát trên client.
+
 ## Luồng đã triển khai
 
 - **Chat tools**

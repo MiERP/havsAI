@@ -1,11 +1,12 @@
 'use strict';
 
-const CACHE_NAME = 'havsai-shell-v4';
+const CACHE_NAME = 'havsai-shell-v5';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
   '/styles.css',
   '/app.js',
+  '/speech.js',
   '/features.js',
   '/manifest.webmanifest',
   '/icon.svg',

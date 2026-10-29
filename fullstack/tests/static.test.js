@@ -16,6 +16,7 @@ test('browser and server scripts pass a syntax check', () => {
     path.join(root, 'fullstack', 'admin.js'),
     path.join(root, 'fullstack', 'lib', 'ai.js'),
     path.join(root, 'fullstack', 'lib', 'secrets.js'),
+    path.join(publicDir, 'speech.js'),
     path.join(publicDir, 'app.js'),
     path.join(publicDir, 'features.js'),
     path.join(publicDir, 'admin.js'),

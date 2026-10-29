@@ -323,18 +323,33 @@ function splitTtsChunks(text, maxLen = 170) {
   return chunks.slice(0, 10);
 }
 
+async function synthesizeChunk(chunk) {
+  const ttsUrl = `https://translate.googleapis.com/translate_tts?ie=UTF-8&tl=vi&client=tw-ob&q=${encodeURIComponent(chunk)}`;
+  const response = await fetch(ttsUrl, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+    signal: AbortSignal.timeout(8000)
+  });
+  if (!response.ok) throw new Error(`tts_http_${response.status}`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
 async function synthesizeVietnameseMp3(text) {
   const chunks = splitTtsChunks(text);
   if (!chunks.length) return null;
   const buffers = [];
   for (const chunk of chunks) {
-    const ttsUrl = `https://translate.googleapis.com/translate_tts?ie=UTF-8&tl=vi&client=tw-ob&q=${encodeURIComponent(chunk)}`;
-    const response = await fetch(ttsUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      signal: AbortSignal.timeout(8000)
-    });
-    if (!response.ok) throw new Error(`tts_http_${response.status}`);
-    buffers.push(Buffer.from(await response.arrayBuffer()));
+    let lastError;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        buffers.push(await synthesizeChunk(chunk));
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+    if (lastError) throw lastError;
   }
   return Buffer.concat(buffers);
 }
@@ -764,6 +779,18 @@ function shouldSearch(text) {
   return /tìm kiếm|tra cứu|search|google|tin tức|mới nhất|hôm nay|nguồn|dẫn chứng|research/i.test(text);
 }
 
+const FORMULA_RULES = [
+  `FORMULAS — write every expression as LaTeX between $...$ (use $$...$$ for a standalone line):`,
+  `- Fractions and division: write \\frac{a}{b}, never a/b, so they read naturally aloud.`,
+  `- Powers, indices, roots: x^{2}, x_{i}, \\sqrt{x}, \\sqrt[3]{x}.`,
+  `- Relations and operators: \\le, \\ge, \\ne, \\approx, \\times, \\cdot, \\pi, \\Delta, \\infty.`,
+  `- Physics: keep the unit with the value, e.g. $v = \\frac{s}{t}$ (m/s), $a$ (m/s^2), $\\rho$ (kg/m^3), $\\vec{F}$, $\\Delta t$.`,
+  `- Chemistry: $2H_2 + O_2 \\to 2H_2O$; reversible reactions use \\rightleftharpoons; write states as (r), (l), (k), (dd).`,
+  `- Biology: $5' \\to 3'$, base pairs $A-T$ and $G-X$, ratios as \\frac.`,
+  `- Use KaTeX core commands only: no \\ce{}, no align or array environments.`,
+  `- Outside formulas write normal Vietnamese prose; do not spell symbols out in words instead of a formula.`
+].join('\n');
+
 async function streamChatCompletion(res, config, subject, messages, extraContext = '') {
   const endpoint = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
   const upstream = await fetch(endpoint, {
@@ -781,7 +808,8 @@ async function streamChatCompletion(res, config, subject, messages, extraContext
           role: 'system',
           content: `You are havsAI, a friendly AI tutor for students. Current subject: ${subject || 'general'}. ` +
             'Answer in the same language as the student (usually Vietnamese). Explain step by step, use short paragraphs, ' +
-            'and end with one practical next step. Do not claim to have tools or memory you do not have.' +
+            'and end with one practical next step. Do not claim to have tools or memory you do not have.\n\n' +
+            FORMULA_RULES +
             (extraContext ? `\n\nUse this tool/material context when relevant:\n${extraContext}` : '')
         },
         ...messages.slice(-14)
