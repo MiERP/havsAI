@@ -660,11 +660,49 @@ function renderAI() {
       <h2>Đang hoạt động</h2>
       <div class="admin-muted">Provider: <b>${esc(data.active?.provider || '—')}</b> · Chat: <b>${esc(data.active?.model || '—')}</b> · Vision: <b>${esc(data.active?.visionModel || '—')}</b></div>
     </div>
-    <div class="admin-toolbar"><button class="admin-btn" data-action="ai-add">Thêm provider</button></div>
+    <div class="admin-card admin-section" style="margin-top:14px">
+      <h2>Đổi / Thêm tài khoản Command Code nhanh</h2>
+      <p class="admin-muted admin-small">Dán trực tiếp <b>API Key Command Code</b> (dạng <code>user_...</code>) hoặc toàn bộ nội dung file <code>~/.commandcode/auth.json</code> để tự động cấu hình cả Chat (<code>deepseek/deepseek-v4.1-flash</code>) và Vision (<code>deepseek/deepseek-v4-flash-vision-exp</code>).</p>
+      <div class="admin-form" style="margin-top:10px">
+        <div class="admin-field"><label>Tên gợi nhớ tài khoản (tùy chọn)</label><input id="cc-name" placeholder="VD: Command Code Tài khoản 2 (tự nhận nếu dán auth.json)" /></div>
+        <div class="admin-field"><label>Command Code API Key hoặc nội dung auth.json</label><textarea id="cc-key" rows="3" style="width:100%;padding:10px;border-radius:10px;background:var(--panel-2,#152411);border:1px solid var(--line,#233a1c);color:var(--text,#f4f7f1);font-family:monospace" placeholder='user_... hoặc {"apiKey":"user_...","userName":"..."}'></textarea></div>
+        <div class="admin-field"><label>Chế độ lưu</label>
+          <select id="cc-mode">
+            <option value="add">Thêm tài khoản mới & đặt làm mặc định (giữ tài khoản cũ để chuyển đổi)</option>
+            <option value="replace">Cập nhật ghi đè tài khoản Command Code hiện tại</option>
+          </select>
+        </div>
+      </div>
+      <div class="admin-actions" style="margin-top:12px">
+        <button class="admin-btn" data-action="ai-commandcode-save">Lưu & Kích hoạt tài khoản Command Code</button>
+      </div>
+    </div>
+    <div class="admin-toolbar"><button class="admin-btn secondary" data-action="ai-add">＋ Thêm provider thủ công</button></div>
     <div class="admin-table-wrap"><table class="admin-table">
       <thead><tr><th>Tên</th><th>Kind</th><th>Provider</th><th>Model</th><th>Default</th><th>Bật</th><th>Key</th><th></th></tr></thead>
       <tbody>${rows || '<tr><td colspan="8" class="admin-empty">Chưa cấu hình provider.</td></tr>'}</tbody>
     </table></div>`;
+}
+
+async function saveCommandCodeAccount() {
+  const name = val('cc-name').trim();
+  const apiKey = val('cc-key').trim();
+  const mode = val('cc-mode') || 'add';
+  if (!apiKey) return toast('Vui lòng nhập API key hoặc nội dung auth.json của Command Code');
+  try {
+    const res = await api('/api/admin/ai/commandcode', {
+      method: 'POST',
+      body: JSON.stringify({ name, apiKey, mode })
+    });
+    if (res.testResult?.ok) {
+      toast(`Đã kích hoạt tài khoản Command Code thành công (${res.testResult.latencyMs} ms)`);
+    } else {
+      toast(`Đã lưu nhưng kiểm tra kết nối báo: ${res.testResult?.error || 'chưa kết nối được'}`);
+    }
+    await loadTab();
+  } catch (error) {
+    toast(error.message === 'invalid_auth_json' ? 'Nội dung JSON auth.json không hợp lệ' : error.message);
+  }
 }
 
 function providerForm(provider) {
@@ -921,6 +959,7 @@ root.addEventListener('click', async (event) => {
   }
   if (action === 'appearance-save') return saveAppearance();
   if (action === 'appearance-reset') return resetAppearance();
+  if (action === 'ai-commandcode-save') return saveCommandCodeAccount();
   if (action === 'ai-add') return openModal('Thêm provider', providerForm(null), { onSave: () => saveProvider(null) });
   if (action === 'ai-edit') return editProvider(id);
   if (action === 'ai-delete' || action === 'ai-default' || action === 'ai-test') return providerAction(id, action, label);

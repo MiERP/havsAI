@@ -25,24 +25,18 @@ function envDefaults() {
     baseUrl: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
     model: process.env.DEEPSEEK_MODEL || 'deepseek-chat'
   };
-  const gemini = {
-    provider: 'openai-compatible',
-    apiKey: process.env.GEMINI_API_KEY || '',
-    baseUrl: process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai',
-    model: process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite'
-  };
   const vision = {
-    provider: gemini.apiKey && !process.env.VISION_API_KEY ? 'openai-compatible' : 'commandcode',
-    apiKey: process.env.VISION_API_KEY || gemini.apiKey || commandcode.apiKey,
-    baseUrl: process.env.VISION_BASE_URL || (gemini.apiKey && !process.env.VISION_API_KEY ? gemini.baseUrl : commandcode.baseUrl),
-    model: process.env.VISION_MODEL || (gemini.apiKey && !process.env.VISION_API_KEY ? 'gemini-3.1-flash-lite' : 'deepseek/deepseek-v4-flash-vision-exp'),
-    fallbackModel: process.env.VISION_FALLBACK_MODEL || (gemini.apiKey && !process.env.VISION_API_KEY ? 'gemini-3-flash-preview' : 'deepseek/deepseek-v4-flash-vision-exp'),
+    provider: 'commandcode',
+    apiKey: process.env.VISION_API_KEY || commandcode.apiKey,
+    baseUrl: process.env.VISION_BASE_URL || commandcode.baseUrl,
+    model: process.env.VISION_MODEL || 'deepseek/deepseek-v4-flash-vision-exp',
+    fallbackModel: process.env.VISION_FALLBACK_MODEL || 'deepseek/deepseek-v4-flash-vision-exp',
     reasoningEffort: process.env.VISION_REASONING_EFFORT || 'off'
   };
   const selected = process.env.AI_PROVIDER ||
-    (commandcode.apiKey ? 'commandcode' : deepseek.apiKey ? 'deepseek' : gemini.apiKey ? 'gemini' : 'mock');
+    (commandcode.apiKey ? 'commandcode' : deepseek.apiKey ? 'deepseek' : 'mock');
 
-  return { commandcode, deepseek, gemini, vision, selected };
+  return { commandcode, deepseek, vision, selected };
 }
 
 function createAi({ db, secrets }) {
@@ -70,12 +64,10 @@ function createAi({ db, secrets }) {
 
   function envKey(row) {
     if (row.kind === 'vision') {
-      if (row.provider === 'openai-compatible') return defaults.gemini.apiKey || defaults.vision.apiKey || '';
       return row.provider === 'commandcode' ? (defaults.vision.apiKey || '') : '';
     }
     if (row.provider === 'commandcode') return defaults.commandcode.apiKey || '';
     if (row.provider === 'deepseek') return defaults.deepseek.apiKey || '';
-    if (row.provider === 'openai-compatible') return defaults.gemini.apiKey || '';
     return '';
   }
 
@@ -107,9 +99,6 @@ function createAi({ db, secrets }) {
     if (defaults.selected === 'deepseek' && defaults.deepseek.apiKey) {
       return { ...defaults.deepseek };
     }
-    if ((defaults.selected === 'gemini' || defaults.selected === 'openai-compatible') && defaults.gemini.apiKey) {
-      return { ...defaults.gemini };
-    }
     return null;
   }
 
@@ -121,7 +110,7 @@ function createAi({ db, secrets }) {
     const seen = new Set();
     const push = (cfg) => {
       if (!cfg || cfg.provider === 'mock' || !cfg.apiKey || !cfg.baseUrl) return;
-      const key = `${cfg.baseUrl}|${cfg.model}|${cfg.apiKey.slice(-6)}`;
+      const key = `${cfg.baseUrl}|${cfg.model}|${cfg.apiKey}`;
       if (seen.has(key)) return;
       seen.add(key);
       list.push(cfg);
@@ -129,16 +118,8 @@ function createAi({ db, secrets }) {
     for (const row of rows) {
       push(fromRow(row));
     }
-    if (kind === 'vision') {
-      push(defaults.vision);
-      if (defaults.gemini.apiKey) {
-        push({ ...defaults.gemini, model: 'gemini-3.1-flash-lite', fallbackModel: 'gemini-3-flash-preview' });
-      }
-    } else {
-      push(resolve('chat'));
-      push(defaults.gemini);
-      push(defaults.deepseek);
-      push(defaults.commandcode);
+    if (!list.length) {
+      push(resolve(kind));
     }
     return list;
   }
@@ -164,12 +145,14 @@ function createAi({ db, secrets }) {
     const base = String(config.baseUrl).replace(/\/$/, '');
     const started = Date.now();
     try {
-      const response = await fetch(`${base}/models`, {
-        headers: { Authorization: `Bearer ${config.apiKey}` },
-        signal: AbortSignal.timeout(10000)
-      });
-      if (response.ok) {
-        return { ok: true, status: response.status, latencyMs: Date.now() - started };
+      if (config.provider !== 'commandcode') {
+        const response = await fetch(`${base}/models`, {
+          headers: { Authorization: `Bearer ${config.apiKey}` },
+          signal: AbortSignal.timeout(10000)
+        });
+        if (response.ok) {
+          return { ok: true, status: response.status, latencyMs: Date.now() - started };
+        }
       }
 
       const fallback = await fetch(`${base}/chat/completions`, {
@@ -179,18 +162,25 @@ function createAi({ db, secrets }) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: config.model,
+          model: config.model || 'deepseek/deepseek-v4.1-flash',
           messages: [{ role: 'user', content: 'ping' }],
           max_tokens: 1,
           stream: false
         }),
         signal: AbortSignal.timeout(10000)
       });
+      let detail = '';
+      if (!fallback.ok) {
+        try {
+          const errJson = await fallback.json();
+          detail = errJson?.error?.message || '';
+        } catch {}
+      }
       return {
         ok: fallback.ok,
         status: fallback.status,
         latencyMs: Date.now() - started,
-        error: fallback.ok ? undefined : `HTTP ${fallback.status}`
+        error: fallback.ok ? undefined : `HTTP ${fallback.status}${detail ? `: ${detail}` : ''}`
       };
     } catch (error) {
       return { ok: false, error: error.message, latencyMs: Date.now() - started };

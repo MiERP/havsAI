@@ -1145,11 +1145,84 @@ function createAdmin({ db, send, readJson, parseCookies, secureCookie, now, uid,
       const result = await ai.testProvider({
         provider: existing.provider,
         baseUrl: existing.base_url,
-        apiKey: secretDecrypt(existing.api_key_enc) || '',
+        apiKey: secretDecrypt(existing.api_key_enc) || envKeyFor(existing) || '',
         model: existing.model
       });
       audit(session, 'ai.tested', 'ai_provider', existing.id, { ok: result.ok, status: result.status || null }, req);
       return send(res, 200, result);
+    }
+
+    if (p === '/api/admin/ai/commandcode' && method === 'POST') {
+      const body = await readJson(req);
+      let rawInput = String(body.apiKey || body.raw || '').trim();
+      if (!rawInput) return send(res, 400, { error: 'missing_api_key' });
+      let apiKey = rawInput;
+      let detectedName = '';
+      if (rawInput.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(rawInput);
+          apiKey = String(parsed.apiKey || parsed.token || parsed.key || '').trim();
+          detectedName = String(parsed.userName || parsed.keyName || '').trim();
+        } catch {
+          return send(res, 400, { error: 'invalid_auth_json' });
+        }
+      }
+      if (!apiKey) return send(res, 400, { error: 'missing_api_key' });
+      const label = str(body.name || detectedName || `Command Code (••••${apiKey.slice(-4)})`, 70);
+      const mode = body.mode === 'replace' ? 'replace' : 'add';
+      const baseUrl = str(body.baseUrl || ai.defaults?.commandcode?.baseUrl || 'https://api.commandcode.ai/provider/v1', 300).replace(/\/$/, '');
+      const chatModel = str(body.chatModel || ai.defaults?.commandcode?.model || 'deepseek/deepseek-v4.1-flash', 200);
+      const visionModel = str(body.visionModel || ai.defaults?.vision?.model || 'deepseek/deepseek-v4-flash-vision-exp', 200);
+      const apiKeyEnc = secretEncrypt(apiKey);
+      const ts = now();
+
+      transaction(() => {
+        db.prepare('UPDATE ai_providers SET is_default = 0 WHERE kind IN (?, ?)').run('chat', 'vision');
+        const existingChat = mode === 'replace'
+          ? db.prepare("SELECT id FROM ai_providers WHERE kind = 'chat' AND provider = 'commandcode' ORDER BY is_default DESC, updated_at DESC LIMIT 1").get()
+          : null;
+        if (existingChat) {
+          db.prepare(`
+            UPDATE ai_providers SET name = ?, provider = 'commandcode', base_url = ?, api_key_enc = ?, model = ?, fallback_model = '', reasoning_effort = '', enabled = 1, is_default = 1, updated_at = ?
+            WHERE id = ?
+          `).run(label, baseUrl, apiKeyEnc, chatModel, ts, existingChat.id);
+        } else {
+          db.prepare(`
+            INSERT INTO ai_providers (id, name, kind, provider, base_url, api_key_enc, model, fallback_model, reasoning_effort, enabled, is_default, created_at, updated_at)
+            VALUES (?, ?, 'chat', 'commandcode', ?, ?, ?, '', '', 1, 1, ?, ?)
+          `).run(uid(), label, baseUrl, apiKeyEnc, chatModel, ts, ts);
+        }
+
+        const existingVision = mode === 'replace'
+          ? db.prepare("SELECT id FROM ai_providers WHERE kind = 'vision' AND provider = 'commandcode' ORDER BY is_default DESC, updated_at DESC LIMIT 1").get()
+          : null;
+        if (existingVision) {
+          db.prepare(`
+            UPDATE ai_providers SET name = ?, provider = 'commandcode', base_url = ?, api_key_enc = ?, model = ?, fallback_model = ?, reasoning_effort = 'off', enabled = 1, is_default = 1, updated_at = ?
+            WHERE id = ?
+          `).run(`Vision · ${label}`, baseUrl, apiKeyEnc, visionModel, visionModel, ts, existingVision.id);
+        } else {
+          db.prepare(`
+            INSERT INTO ai_providers (id, name, kind, provider, base_url, api_key_enc, model, fallback_model, reasoning_effort, enabled, is_default, created_at, updated_at)
+            VALUES (?, ?, 'vision', 'commandcode', ?, ?, ?, ?, 'off', 1, 1, ?, ?)
+          `).run(uid(), `Vision · ${label}`, baseUrl, apiKeyEnc, visionModel, visionModel, ts, ts);
+        }
+        audit(session, 'ai.commandcode_account_set', 'ai_provider', label, { mode, keyHint: `••••${apiKey.slice(-4)}` }, req);
+      });
+
+      const testResult = await ai.testProvider({
+        provider: 'commandcode',
+        baseUrl,
+        apiKey,
+        model: chatModel
+      });
+      const items = db.prepare('SELECT * FROM ai_providers ORDER BY kind, is_default DESC, created_at ASC').all();
+      return send(res, 200, {
+        ok: true,
+        testResult,
+        items: items.map(providerView),
+        active: ai.describe()
+      });
     }
 
     if (p === '/api/admin/ai/status' && method === 'GET') {

@@ -1324,6 +1324,119 @@ function route(req, res) {
     return send(res, 200, { ok: true, id: chat.id });
   }
 
+  if (p === '/api/ai/commandcode' && req.method === 'GET') {
+    const ctx = requireUser(req, res); if (!ctx) return;
+    const rows = db.prepare("SELECT * FROM ai_providers WHERE kind = 'chat' AND provider = 'commandcode' ORDER BY is_default DESC, updated_at DESC").all();
+    const accounts = rows.map((row) => {
+      const dec = secrets.decrypt(row.api_key_enc) || ai.defaults?.commandcode?.apiKey || '';
+      return {
+        id: row.id,
+        name: row.name,
+        model: row.model || 'deepseek/deepseek-v4.1-flash',
+        baseUrl: row.base_url || 'https://api.commandcode.ai/provider/v1',
+        enabled: !!row.enabled,
+        isDefault: !!row.is_default,
+        keyHint: dec ? `••••${dec.slice(-4)}` : 'chưa có key',
+        updatedAt: row.updated_at
+      };
+    });
+    return send(res, 200, { active: ai.describe(), accounts });
+  }
+
+  if (p === '/api/ai/commandcode' && req.method === 'POST') {
+    const ctx = requireUser(req, res); if (!ctx) return;
+    return readJson(req).then(async (body) => {
+      if (body.action === 'activate' && body.id) {
+        const target = db.prepare("SELECT * FROM ai_providers WHERE id = ? AND kind = 'chat'").get(String(body.id));
+        if (!target) return send(res, 404, { error: 'not_found' });
+        const ts = now();
+        db.prepare("UPDATE ai_providers SET is_default = 0 WHERE kind = 'chat'").run();
+        db.prepare('UPDATE ai_providers SET is_default = 1, enabled = 1, updated_at = ? WHERE id = ?').run(ts, target.id);
+        if (target.api_key_enc) {
+          const visionRow = db.prepare("SELECT id FROM ai_providers WHERE kind = 'vision' AND provider = 'commandcode' ORDER BY is_default DESC, updated_at DESC LIMIT 1").get();
+          if (visionRow) {
+            db.prepare('UPDATE ai_providers SET api_key_enc = ?, is_default = 1, enabled = 1, updated_at = ? WHERE id = ?').run(target.api_key_enc, ts, visionRow.id);
+          }
+        }
+        const dec = secrets.decrypt(target.api_key_enc) || ai.defaults?.commandcode?.apiKey || '';
+        const testResult = await ai.testProvider({
+          provider: target.provider,
+          baseUrl: target.base_url || 'https://api.commandcode.ai/provider/v1',
+          apiKey: dec,
+          model: target.model || 'deepseek/deepseek-v4.1-flash'
+        });
+        return send(res, 200, { ok: true, testResult, active: ai.describe() });
+      }
+
+      if (body.action === 'delete' && body.id) {
+        db.prepare("DELETE FROM ai_providers WHERE id = ? AND kind = 'chat'").run(String(body.id));
+        const nextRow = db.prepare("SELECT id FROM ai_providers WHERE kind = 'chat' AND enabled = 1 ORDER BY is_default DESC, updated_at DESC LIMIT 1").get();
+        if (nextRow) db.prepare('UPDATE ai_providers SET is_default = 1 WHERE id = ?').run(nextRow.id);
+        return send(res, 200, { ok: true, active: ai.describe() });
+      }
+
+      const rawInput = String(body.apiKey || body.raw || '').trim();
+      if (!rawInput) return send(res, 400, { error: 'missing_api_key' });
+      let apiKey = rawInput;
+      let detectedName = '';
+      if (rawInput.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(rawInput);
+          apiKey = String(parsed.apiKey || parsed.token || parsed.key || '').trim();
+          detectedName = String(parsed.userName || parsed.keyName || '').trim();
+        } catch {
+          return send(res, 400, { error: 'invalid_auth_json' });
+        }
+      }
+      if (!apiKey) return send(res, 400, { error: 'missing_api_key' });
+
+      const label = String(body.name || detectedName || `Command Code (••••${apiKey.slice(-4)})`).trim().slice(0, 70);
+      const mode = body.mode === 'replace' ? 'replace' : 'add';
+      const baseUrl = String(body.baseUrl || ai.defaults?.commandcode?.baseUrl || 'https://api.commandcode.ai/provider/v1').trim().replace(/\/$/, '');
+      const chatModel = String(body.chatModel || ai.defaults?.commandcode?.model || 'deepseek/deepseek-v4.1-flash').trim();
+      const visionModel = String(body.visionModel || ai.defaults?.vision?.model || 'deepseek/deepseek-v4-flash-vision-exp').trim();
+      const apiKeyEnc = secrets.encrypt(apiKey);
+      const ts = now();
+
+      db.prepare("UPDATE ai_providers SET is_default = 0 WHERE kind IN ('chat', 'vision')").run();
+      const existingChat = mode === 'replace'
+        ? db.prepare("SELECT id FROM ai_providers WHERE kind = 'chat' AND provider = 'commandcode' ORDER BY is_default DESC, updated_at DESC LIMIT 1").get()
+        : null;
+      if (existingChat) {
+        db.prepare(`
+          UPDATE ai_providers SET name = ?, provider = 'commandcode', base_url = ?, api_key_enc = ?, model = ?, fallback_model = '', reasoning_effort = '', enabled = 1, is_default = 1, updated_at = ?
+          WHERE id = ?
+        `).run(label, baseUrl, apiKeyEnc, chatModel, ts, existingChat.id);
+      } else {
+        db.prepare(`
+          INSERT INTO ai_providers (id, name, kind, provider, base_url, api_key_enc, model, fallback_model, reasoning_effort, enabled, is_default, created_at, updated_at)
+          VALUES (?, ?, 'chat', 'commandcode', ?, ?, ?, '', '', 1, 1, ?, ?)
+        `).run(uid(), label, baseUrl, apiKeyEnc, chatModel, ts, ts);
+      }
+
+      const existingVision = db.prepare("SELECT id FROM ai_providers WHERE kind = 'vision' AND provider = 'commandcode' ORDER BY is_default DESC, updated_at DESC LIMIT 1").get();
+      if (existingVision) {
+        db.prepare(`
+          UPDATE ai_providers SET name = ?, provider = 'commandcode', base_url = ?, api_key_enc = ?, model = ?, fallback_model = ?, reasoning_effort = 'off', enabled = 1, is_default = 1, updated_at = ?
+          WHERE id = ?
+        `).run(`Vision · ${label}`, baseUrl, apiKeyEnc, visionModel, visionModel, ts, existingVision.id);
+      } else {
+        db.prepare(`
+          INSERT INTO ai_providers (id, name, kind, provider, base_url, api_key_enc, model, fallback_model, reasoning_effort, enabled, is_default, created_at, updated_at)
+          VALUES (?, ?, 'vision', 'commandcode', ?, ?, ?, ?, 'off', 1, 1, ?, ?)
+        `).run(uid(), `Vision · ${label}`, baseUrl, apiKeyEnc, visionModel, visionModel, ts, ts);
+      }
+
+      const testResult = await ai.testProvider({
+        provider: 'commandcode',
+        baseUrl,
+        apiKey,
+        model: chatModel
+      });
+      return send(res, 200, { ok: true, testResult, active: ai.describe() });
+    }).catch((e) => send(res, 400, { error: e.message }));
+  }
+
   if (p === '/api/chat/stream' && req.method === 'POST') {
     const ctx = requireUser(req, res); if (!ctx) return;
     return readJson(req).then(async (body) => {
@@ -1409,6 +1522,7 @@ function route(req, res) {
         const providerConfigs = typeof ai.resolveAll === 'function' ? ai.resolveAll('chat') : [currentProviderConfig()].filter(Boolean);
         if (providerConfigs.length) {
           const history = db.prepare('SELECT role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC LIMIT 20').all(chatId);
+          let lastErr = null;
           for (const cfg of providerConfigs) {
             if (!cfg?.apiKey) continue;
             const candidateModels = [...new Set([cfg.model, cfg.fallbackModel].filter(Boolean))];
@@ -1416,9 +1530,14 @@ function route(req, res) {
               try {
                 full = await streamChatCompletion(res, { ...cfg, model: candidateModel }, subject, history, extraContext);
                 if (full) break;
-              } catch {}
+              } catch (err) {
+                lastErr = err;
+              }
             }
             if (full) break;
+          }
+          if (!full && lastErr) {
+            throw lastErr;
           }
           if (!full) {
             full = await streamMock(res, subject, text);
@@ -1427,7 +1546,12 @@ function route(req, res) {
           full = await streamMock(res, subject, text);
         }
       } catch (error) {
-        full = `Xin lỗi, mình đang gặp sự cố kết nối (${error.message}). Bạn thử lại nhé.`;
+        const msg = String(error?.message || '');
+        if (msg.includes('upstream_401') || msg.includes('UNAUTHORIZED')) {
+          full = `Tài khoản Command Code hiện tại đã hết hạn hoặc token không hợp lệ (401 Unauthorized). Bạn hãy vào mục **Cài đặt → Tài khoản AI (Command Code)** (hoặc trang **/admin → AI**) để dán API key / nội dung file auth.json của tài khoản Command Code mới nhé.`;
+        } else {
+          full = `Xin lỗi, mình đang gặp sự cố kết nối (${msg}). Bạn thử lại nhé.`;
+        }
         res.write(`data: ${JSON.stringify({ type: 'token', value: full })}\n\n`);
       }
       const assistantId = uid();
