@@ -678,6 +678,26 @@ p { line-height: 1.6; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 
+.exam-home-grid { display: flex; flex-direction: column; gap: 14px; }
+.exam-home-main { min-width: 0; }
+.exam-item { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.exam-item .grow { min-width: 0; }
+.exam-item-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.exam-item-actions .btn { width: auto; }
+.exam-item-actions .icon-btn { width: 36px; height: 36px; color: var(--muted); }
+.exam-item-actions .icon-btn:hover { color: var(--danger); background: rgba(var(--danger-rgb), .12); }
+.exam-home-links { margin-top: 14px; }
+@media (min-width: 1024px) {
+  .exam-home-grid {
+    display: grid;
+    grid-template-columns: 380px minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+  }
+  .exam-home-side { position: sticky; top: 78px; }
+  .exam-home-main .exam-item { padding: 14px 16px; }
+}
+
 .btn .ico { width: 17px; height: 17px; }
 .btn.ghost .ico { width: 15px; height: 15px; }
 .tool { display: inline-flex; align-items: center; gap: 5px; }

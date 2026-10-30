@@ -259,38 +259,61 @@ function renderExamList() {
       ${(state.examShared || []).map((prep) => `<div class="item"><h3>${esc(prep.title)}</h3><p>${esc(prep.author || 'Học sinh')} · ${esc(subjectName(prep.subject))}</p><button class="btn secondary" style="margin-top:8px" data-action="nav" data-value="/share/a/${prep.shareId}">Xem</button></div>`).join('')}</div>`;
   } else {
     const catalog = state.examCatalog || [];
-    body = `<div class="list">${(state.examPreps || []).map((prep) => `<div class="item"><h3>${esc(prep.title)}</h3><p>${esc(subjectName(prep.subject))} · ${fmtDate(prep.examDate)} · ${esc(prep.status)}</p>${prepProgress(prep)}
-      <div class="row" style="margin-top:10px"><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}">Mở</button>${prep.status !== 'ready' ? `<button class="btn" data-action="exam-generate" data-value="${prep.id}">Sinh kế hoạch</button>` : ''}</div></div>`).join('') || '<div class="item"><p>Chưa có đề ôn tập nào.</p></div>'}</div>
+    body = `<div class="list">${(state.examPreps || []).map((prep) => `<div class="item exam-item">
+      <div class="grow">
+        <h3>${esc(prep.title)}</h3>
+        <p>${esc(subjectName(prep.subject))} · ${fmtDate(prep.examDate)} · ${esc(prep.status)}</p>
+        ${prepProgress(prep)}
+      </div>
+      <div class="exam-item-actions">
+        ${prep.status !== 'ready' ? `<button class="btn ghost small" data-action="exam-generate" data-value="${prep.id}">Sinh kế hoạch</button>` : ''}
+        <button class="btn secondary small" data-action="nav" data-value="/exam-preps/${prep.id}">Mở</button>
+        <button class="icon-btn" data-action="exam-delete" data-value="${prep.id}" title="Xoá kỳ ôn" aria-label="Xoá kỳ ôn">${icon('trash')}</button>
+      </div>
+    </div>`).join('') || '<div class="item"><p>Chưa có đề ôn tập nào.</p></div>'}</div>
       ${catalog.length ? `<div class="card" style="margin-top:14px"><h2>Đề mẫu</h2>${catalog.map((item) => `<div class="item" style="margin-bottom:8px"><h3>${esc(item.title)}</h3><p>${esc(item.region || '')}</p><button class="btn secondary" data-action="exam-catalog-create" data-value="${item.id}">Tạo đề</button></div>`).join('')}</div>` : ''}`;
   }
+  const groups = new Map();
+  for (const prep of state.examPreps || []) {
+    const key = `${prep.title}|${prep.subject}|${prep.examDate}`;
+    groups.set(key, (groups.get(key) || 0) + 1);
+  }
+  const duplicateCount = [...groups.values()].reduce((sum, count) => sum + Math.max(0, count - 1), 0);
   return `<div class="pad exam-home">
     <div class="row exam-title-row">
       <h1>Kỳ thi</h1><div class="grow"></div>
       <button class="icon-btn" data-action="nav" data-value="/exam-preps/search" title="Tìm kiếm">${icon('search')}</button>
       <button class="icon-btn send" data-action="open-exam-wizard" title="Tạo bài thi mới">${icon('plus')}</button>
     </div>
-    <div class="hero-card">
-      <div class="hero-icon">${icon('sparkle')}</div>
-      <h2>Chuẩn bị cho kỳ thi tới của bạn</h2>
-      <p>Thêm ghi chép của bạn hoặc chọn một kỳ thi chính thức, havsAI sẽ lập kế hoạch học tập đến ngày thi.</p>
-      <button class="btn" data-action="open-exam-wizard">${icon('plus')} Tạo bài thi mới</button>
-      <button class="btn ghost exam-how" data-action="exam-how">Cách thức hoạt động ⓘ</button>
-    </div>
-    <p class="section-label">Bắt đầu từ</p>
-    <div class="start-grid">
-      <button class="start-card" data-action="open-exam-wizard" data-value="files">
-        <span class="start-icon">${icon('upload')}</span><b>Tệp của bạn</b><small>TẢI LÊN GHI CHÉP, HÌNH ẢNH HOẶC SÁCH GIÁO KHOA</small>
-      </button>
-      <button class="start-card" data-action="open-exam-wizard" data-value="school">
-        <span class="start-icon">${icon('book')}</span><b>Trường của tôi</b><small>${esc((state.profile?.school || 'HAF LAAM') + ' · ' + (state.examPreps?.length || 0) + ' BỘ ÔN THI')}</small>
-      </button>
-    </div>
-    ${tabs}
-    ${body}
-    <div class="row" style="margin-top:14px">
-      <button class="btn ghost" data-action="nav" data-value="/lab">Lab</button>
-      <button class="btn ghost" data-action="nav" data-value="/calendar">Lịch</button>
-      <button class="btn ghost" data-action="nav" data-value="/showcase">Khám phá</button>
+    <div class="exam-home-grid">
+      <div class="exam-home-side">
+        <div class="hero-card">
+          <div class="hero-icon">${icon('sparkle')}</div>
+          <h2>Chuẩn bị cho kỳ thi tới của bạn</h2>
+          <p>Thêm ghi chép của bạn hoặc chọn một kỳ thi chính thức, havsAI sẽ lập kế hoạch học tập đến ngày thi.</p>
+          <button class="btn" data-action="open-exam-wizard">${icon('plus')} Tạo bài thi mới</button>
+          <button class="btn ghost exam-how" data-action="exam-how">Cách thức hoạt động ⓘ</button>
+        </div>
+        <p class="section-label">Bắt đầu từ</p>
+        <div class="start-grid">
+          <button class="start-card" data-action="open-exam-wizard" data-value="files">
+            <span class="start-icon">${icon('upload')}</span><b>Tệp của bạn</b><small>TẢI LÊN GHI CHÉP, HÌNH ẢNH HOẶC SÁCH GIÁO KHOA</small>
+          </button>
+          <button class="start-card" data-action="open-exam-wizard" data-value="school">
+            <span class="start-icon">${icon('book')}</span><b>Trường của tôi</b><small>${esc((state.profile?.school || 'HAF LAAM') + ' · ' + (state.examPreps?.length || 0) + ' BỘ ÔN THI')}</small>
+          </button>
+        </div>
+      </div>
+      <div class="exam-home-main">
+        ${mode === 'all' && duplicateCount ? `<div class="info-box"><span>${icon('sparkle')}</span><p>Có <b>${duplicateCount}</b> kỳ ôn trùng tên và ngày. <button class="btn ghost small" data-action="exam-dedupe">Dọn đề trùng</button></p></div>` : ''}
+        ${tabs}
+        ${body}
+        <div class="row exam-home-links">
+          <button class="btn ghost" data-action="nav" data-value="/lab">Lab</button>
+          <button class="btn ghost" data-action="nav" data-value="/calendar">Lịch</button>
+          <button class="btn ghost" data-action="nav" data-value="/showcase">Khám phá</button>
+        </div>
+      </div>
     </div>
     ${renderExamWizard()}
   </div>`;
@@ -707,6 +730,30 @@ document.addEventListener('click', async (event) => {
       toast('Đã tạo đề từ danh mục');
       navigate(`/exam-preps/${created.id}`);
     } catch (error) { toast(error.message); }
+    return;
+  }
+  if (action === 'exam-delete') {
+    if (!window.confirm('Xoá kỳ ôn này cùng toàn bộ bài học và bài làm?')) return;
+    try {
+      await api(`/api/exam-preps/${value}`, { method: 'DELETE' });
+      if (state.exam && state.exam.id === value) state.exam = null;
+      await loadRouteData();
+      render();
+      toast('Đã xoá kỳ ôn');
+    } catch (error) {
+      toast(error.message);
+    }
+    return;
+  }
+  if (action === 'exam-dedupe') {
+    try {
+      const data = await api('/api/exam-preps/dedupe', { method: 'POST' });
+      await loadRouteData();
+      render();
+      toast(data.removed ? `Đã xoá ${data.removed} kỳ ôn trùng` : 'Không có kỳ ôn trùng');
+    } catch (error) {
+      toast(error.message);
+    }
     return;
   }
   if (action === 'exam-share') {

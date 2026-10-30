@@ -372,6 +372,43 @@ test('the requested number of study days is stored with the prep', async () => {
   assert.equal(prep.planDays, 8);
 });
 
+test('creating the same prep twice reuses the first row', async () => {
+  const cookie = await login('dedupe-create@example.com');
+  const body = { title: 'Trung ten', subject: 'math', examDate: '2026-11-09' };
+  const first = await (await request('POST', '/api/preps', body, cookie)).json();
+  const second = await (await request('POST', '/api/preps', body, cookie)).json();
+  assert.equal(second.id, first.id);
+  assert.equal(second.reused, true);
+  const userId = db.prepare('SELECT id FROM users WHERE email = ?').get('dedupe-create@example.com').id;
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM preps WHERE user_id = ?').get(userId).n, 1);
+});
+
+test('duplicate preps collapse onto the most progressed one and can be deleted', async () => {
+  const cookie = await login('dedupe-run@example.com');
+  const userId = db.prepare('SELECT id FROM users WHERE email = ?').get('dedupe-run@example.com').id;
+  const ids = [];
+  for (let index = 0; index < 3; index += 1) {
+    const id = `dup-${index}-${Math.random().toString(16).slice(2, 10)}`;
+    db.prepare('INSERT INTO preps (id, user_id, title, subject, exam_date, status, plan_json, lessons_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, userId, 'Trung', 'math', '2026-11-09', 'ready', null,
+        JSON.stringify([{ id: 'lesson-1', done: index === 2 }]), Date.now() + index);
+    ids.push(id);
+  }
+
+  const dedupe = await request('POST', '/api/exam-preps/dedupe', {}, cookie);
+  assert.equal(dedupe.status, 200);
+  assert.equal((await dedupe.json()).removed, 2);
+
+  const kept = await request('GET', `/api/exam-preps/${ids[2]}`, null, cookie);
+  assert.equal(kept.status, 200);
+  assert.equal((await kept.json()).prep.lessons[0].done, true);
+
+  const deleted = await request('DELETE', `/api/exam-preps/${ids[2]}`, null, cookie);
+  assert.equal(deleted.status, 200);
+  const after = await request('GET', `/api/exam-preps/${ids[2]}`, null, cookie);
+  assert.equal(after.status, 404);
+});
+
 test('mock exams split ten questions per study day into 20-question papers', async () => {
   const cookie = await login('mockplan@example.com');
   const created = await request('POST', '/api/preps', { title: 'Chia de thi', subject: 'math' }, cookie);

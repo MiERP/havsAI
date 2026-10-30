@@ -1809,10 +1809,16 @@ function route(req, res) {
   if (p === '/api/preps' && req.method === 'POST') {
     const ctx = requireUser(req, res); if (!ctx) return;
     return readJson(req).then((body) => {
+      const title = String(body.title || 'Đề ôn tập').slice(0, 120);
+      const subject = String(body.subject || 'math');
+      const examDate = String(body.examDate || '');
+      const duplicate = db.prepare(
+        'SELECT id FROM preps WHERE user_id = ? AND title = ? AND subject = ? AND exam_date = ? AND created_at > ? ORDER BY created_at DESC LIMIT 1'
+      ).get(ctx.user.id, title, subject, examDate, now() - 10 * 60 * 1000);
+      if (duplicate) return send(res, 200, { id: duplicate.id, reused: true });
       const id = uid();
       db.prepare('INSERT INTO preps (id, user_id, title, subject, exam_date, status, material_upload_id, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-        id, ctx.user.id, String(body.title || 'Đề ôn tập').slice(0, 120), String(body.subject || 'math'),
-        String(body.examDate || ''), 'draft', body.uploadId ? String(body.uploadId) : null,
+        id, ctx.user.id, title, subject, examDate, 'draft', body.uploadId ? String(body.uploadId) : null,
         body.source ? String(body.source).slice(0, 40) : null, now()
       );
       return send(res, 200, { id });
@@ -2119,7 +2125,47 @@ function route(req, res) {
     const view = prepView(prep);
     return send(res, 200, { mastery: view.mastery, lessons: view.lessons, attempts: view.mastery.attempts || 0 });
   }
+  if (p === '/api/exam-preps/dedupe' && req.method === 'POST') {
+    const ctx = requireUser(req, res); if (!ctx) return;
+    const rows = db.prepare('SELECT * FROM preps WHERE user_id = ? ORDER BY created_at ASC').all(ctx.user.id);
+    const groups = new Map();
+    for (const row of rows) {
+      const key = `${row.title || ''}|${row.subject || ''}|${row.exam_date || ''}|${row.material_upload_id || ''}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
+    }
+    let removed = 0;
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const scored = group.map((row) => {
+        const lessons = parseJsonValue(row.lessons_json, []) || [];
+        return {
+          row,
+          done: lessons.filter((lesson) => lesson.done).length,
+          questions: lessons.reduce((sum, lesson) => sum + (Array.isArray(lesson.quiz) ? lesson.quiz.length : 0), 0)
+        };
+      });
+      scored.sort((a, b) => (b.done - a.done) || (b.questions - a.questions) || (a.row.created_at - b.row.created_at));
+      for (const item of scored.slice(1)) {
+        db.prepare('DELETE FROM prep_materials WHERE prep_id = ?').run(item.row.id);
+        db.prepare('DELETE FROM attempts WHERE prep_id = ? AND user_id = ?').run(item.row.id, ctx.user.id);
+        db.prepare('DELETE FROM preps WHERE id = ? AND user_id = ?').run(item.row.id, ctx.user.id);
+        removed += 1;
+      }
+    }
+    return send(res, 200, { removed, remaining: rows.length - removed });
+  }
   const examDetail = p.match(/^\/api\/exam-preps\/([^/]+)$/);
+  if (examDetail && req.method === 'DELETE') {
+    const ctx = requireUser(req, res); if (!ctx) return;
+    const prep = db.prepare('SELECT * FROM preps WHERE id = ? AND user_id = ?').get(examDetail[1], ctx.user.id);
+    if (!prep) return send(res, 404, { error: 'not_found' });
+    db.prepare('DELETE FROM prep_materials WHERE prep_id = ?').run(prep.id);
+    db.prepare('DELETE FROM attempts WHERE prep_id = ? AND user_id = ?').run(prep.id, ctx.user.id);
+    db.prepare('DELETE FROM preps WHERE id = ? AND user_id = ?').run(prep.id, ctx.user.id);
+    broadcastRealtime(ctx.user.id, 'prep.updated', { prepId: prep.id, deleted: true });
+    return send(res, 200, { ok: true, id: prep.id });
+  }
   if (examDetail && req.method === 'GET') {
     const ctx = requireUser(req, res); if (!ctx) return;
     const prep = db.prepare('SELECT * FROM preps WHERE id = ? AND user_id = ?').get(examDetail[1], ctx.user.id);
