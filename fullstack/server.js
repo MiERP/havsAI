@@ -600,7 +600,7 @@ async function ensureQuizQuestions(prep, userId, lesson, target = 10) {
     ...(lesson.sections || []).map((section) => `${section.heading || ''}: ${section.body || ''}`),
     ...(lesson.practice || []).map((item) => `${item.question} => ${item.answer}`)
   ].filter(Boolean).join('\n');
-  for (let attempt = 0; attempt < 2 && quiz.length < target; attempt += 1) {
+  for (let attempt = 0; attempt < 3 && quiz.length < target; attempt += 1) {
     const more = await generateQuestions({
       subject: prep.subject,
       title: prep.title,
@@ -624,7 +624,7 @@ async function ensureMockQuestions(prep, userId, mock) {
   const material = await collectMaterialContext(prep, userId, 6000, 8000).catch(() => ({ text: '' }));
   const plan = parseJsonValue(prep.plan_json, null) || {};
   const scope = (plan.topics || []).join('; ') || prep.title || '';
-  for (let attempt = 0; attempt < 2 && questions.length < target; attempt += 1) {
+  for (let attempt = 0; attempt < 3 && questions.length < target; attempt += 1) {
     const more = await generateQuestions({
       subject: prep.subject,
       title: prep.title,
@@ -1295,7 +1295,8 @@ async function regeneratePrep(prep, userId, options = {}) {
 
 function normalizeAnswer(value) {
   return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9.+=\-/ ]/g, ' ').replace(/\s+/g, ' ').trim();
+    .replace(/≤/g, '<=').replace(/≥/g, '>=').replace(/≠/g, '!=')
+    .replace(/[^a-z0-9.+=\-/<>! ]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function scoreAnswers(questions, answers) {

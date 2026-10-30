@@ -425,6 +425,44 @@ test('a lesson quiz marks the lesson done from 70 percent', async () => {
   assert.equal(body.prep.lessons[0].done, true);
 });
 
+test('comparison symbol answers are scored instead of stripped', async () => {
+  const cookie = await login('symbols@example.com');
+  const created = await request('POST', '/api/preps', { title: 'Dau so sanh', subject: 'math' }, cookie);
+  const prepId = (await created.json()).id;
+  const lessons = [{
+    id: 'lesson-1',
+    title: 'So sanh',
+    focus: 'So sanh',
+    topics: [],
+    intro: 'So sanh hai so.',
+    sections: [],
+    example: null,
+    practice: [],
+    done: false,
+    quiz: [
+      { id: 'q1', question: 'Dien dau: 5 ... 7', answer: '<' },
+      { id: 'q2', question: 'Dien dau: 9 ... 4', answer: '>' },
+      { id: 'q3', question: 'Dien dau: 3 ... 3', answer: '=' }
+    ]
+  }];
+  const plan = {
+    version: 2,
+    title: 'Dau so sanh',
+    subject: 'math',
+    days: [{ day: 1, focus: 'So sanh', tasks: [], lesson: { intro: 'x', sections: [], example: null }, practice: [] }],
+    practice: [],
+    tips: []
+  };
+  db.prepare('UPDATE preps SET plan_json = ?, lessons_json = ? WHERE id = ?')
+    .run(JSON.stringify(plan), JSON.stringify(lessons), prepId);
+
+  const attempt = await request('POST', `/api/exam-preps/${prepId}/lessons/lesson-1/quiz/attempt`, {
+    answers: { q1: '<', q2: '>', q3: '=' }
+  }, cookie);
+  assert.equal(attempt.status, 200);
+  assert.equal((await attempt.json()).attempt.score, 3);
+});
+
 test('lesson practice answers are checked against the stored answer', async () => {
   const cookie = await login('practice@example.com');
   const created = await request('POST', '/api/preps', { title: 'Luyen tap', subject: 'math' }, cookie);
