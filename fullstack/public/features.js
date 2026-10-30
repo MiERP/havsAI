@@ -8,6 +8,10 @@ function pct(done, total) {
   return total ? Math.round((done / total) * 100) : 0;
 }
 
+function rich(value) {
+  return typeof formatMessage === 'function' ? formatMessage(value || '') : esc(value || '');
+}
+
 function routeTabs(active, items) {
   return `<div class="chips">${items.map(([id, label, href]) => `<button class="chip ${active === id ? 'active' : ''}" data-action="nav" data-value="${href}">${label}</button>`).join('')}</div>`;
 }
@@ -314,9 +318,9 @@ function renderExamDetail() {
           ${prep.shareId ? `<p class="small">Link chia sẻ: <code>/share/a/${esc(prep.shareId)}</code></p>` : ''}
         </div>
         <div class="card" style="margin-bottom:14px"><h2>Kế hoạch</h2>
-          ${prep.plan?.topics?.length ? `<p class="small">Chủ đề: ${prep.plan.topics.map((topic) => esc(topic)).join(' · ')}</p>` : ''}
-          ${(prep.plan?.days || []).map((day) => `<div style="margin:12px 0"><b>Ngày ${esc(day.day)} · ${esc(day.focus || '')}</b><ul>${(day.tasks || []).map((task) => `<li>${esc(task)}</li>`).join('')}</ul></div>`).join('') || '<p>Chưa có kế hoạch.</p>'}
-          ${prep.plan?.summary ? `<p>${esc(prep.plan.summary)}</p>` : ''}
+          ${prep.plan?.topics?.length ? `<p class="small">Chủ đề: ${prep.plan.topics.map((topic) => rich(topic)).join(' · ')}</p>` : ''}
+          ${(prep.plan?.days || []).map((day) => `<div style="margin:12px 0"><b>Ngày ${esc(day.day)} · ${rich(day.focus || '')}</b><ul>${(day.tasks || []).map((task) => `<li>${rich(task)}</li>`).join('')}</ul></div>`).join('') || '<p>Chưa có kế hoạch.</p>'}
+          ${prep.plan?.summary ? `<p>${rich(prep.plan.summary)}</p>` : ''}
         </div>
       </div>
       <div>
@@ -324,7 +328,7 @@ function renderExamDetail() {
           ${(prep.lessons || []).map((lesson) => `<div class="item" style="margin-bottom:8px"><h3>${esc(lesson.title)} ${lesson.done ? '✓' : ''}</h3><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/lessons/${lesson.id}">Mở bài</button></div>`).join('') || '<p>Chưa có bài học.</p>'}
         </div>
         <div class="card" style="margin-bottom:14px"><h2>Thử thách</h2>
-          ${(prep.challenges || []).map((challenge) => `<div class="item" style="margin-bottom:8px"><h3>${esc(challenge.title)}</h3><p>${esc(challenge.question)}</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/challenges/${challenge.id}">Làm thử thách</button></div>`).join('') || '<p>Chưa có thử thách.</p>'}
+          ${(prep.challenges || []).map((challenge) => `<div class="item" style="margin-bottom:8px"><h3>${esc(challenge.title)}</h3><p>${rich(challenge.question)}</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/challenges/${challenge.id}">Làm thử thách</button></div>`).join('') || '<p>Chưa có thử thách.</p>'}
         </div>
         <div class="card"><h2>Đề thi thử</h2>
           ${(prep.mockExams || []).map((mock) => `<div class="item" style="margin-bottom:8px"><h3>${esc(mock.title)}</h3><p>${mock.questions?.length || 0} câu · ${mock.durationMinutes || 30} phút</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/mock-exams/${mock.id}">Làm đề</button></div>`).join('') || '<p>Chưa có đề thi thử.</p>'}
@@ -345,19 +349,19 @@ function renderLesson() {
   return `<div class="pad">
     <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">← ${esc(prep.title)}</button>
     <h1>${esc(lesson.title)}</h1>
-    ${lesson.topics?.length ? `<p class="small">Chủ đề: ${lesson.topics.map((topic) => esc(topic)).join(' · ')}</p>` : ''}
+    ${lesson.topics?.length ? `<p class="small">Chủ đề: ${lesson.topics.map((topic) => rich(topic)).join(' · ')}</p>` : ''}
     ${prep.plan?.generatedBy === 'fallback' ? `<div class="info-box"><span>ⓘ</span><p>AI chưa tạo được nội dung nên bài này chỉ có khung nhiệm vụ. <button class="btn ghost" data-action="exam-regenerate" data-value="${prep.id}">Tạo lại bằng AI</button></p></div>` : ''}
-    ${lesson.intro ? `<div class="card" style="margin-bottom:14px"><p style="white-space:pre-wrap">${esc(lesson.intro)}</p></div>` : ''}
-    ${sections.map((section) => `<div class="card" style="margin-bottom:14px">${section.heading ? `<h2>${esc(section.heading)}</h2>` : ''}<p style="white-space:pre-wrap">${esc(section.body || '')}</p></div>`).join('')}
-    ${example ? `<div class="card" style="margin-bottom:14px"><h2>Ví dụ</h2>${example.problem ? `<p><b>Đề bài:</b> ${esc(example.problem)}</p>` : ''}${(example.steps || []).map((step, index) => `<p>${index + 1}. ${esc(step)}</p>`).join('')}${example.answer ? `<p><b>Đáp số:</b> ${esc(example.answer)}</p>` : ''}</div>` : ''}
+    ${lesson.intro ? `<div class="card" style="margin-bottom:14px"><div>${rich(lesson.intro)}</div></div>` : ''}
+    ${sections.map((section) => `<div class="card" style="margin-bottom:14px">${section.heading ? `<h2>${rich(section.heading)}</h2>` : ''}<div>${rich(section.body || '')}</div></div>`).join('')}
+    ${example ? `<div class="card" style="margin-bottom:14px"><h2>Ví dụ</h2>${example.problem ? `<p><b>Đề bài:</b> ${rich(example.problem)}</p>` : ''}${(example.steps || []).map((step, index) => `<p>${index + 1}. ${rich(step)}</p>`).join('')}${example.answer ? `<p><b>Đáp số:</b> ${rich(example.answer)}</p>` : ''}</div>` : ''}
     ${practice.length ? `<div class="card" style="margin-bottom:14px"><h2>Luyện tập</h2>${practice.map((item, index) => `<div class="item" style="margin-bottom:12px">
-      <p><b>Câu ${index + 1}.</b> ${esc(item.question)}</p>
+      <p><b>Câu ${index + 1}.</b> ${rich(item.question)}</p>
       <div class="row" style="gap:8px;flex-wrap:wrap">
         <input id="practice-${index}" class="input" placeholder="Nhập đáp án của bạn" style="flex:1;min-width:160px" />
         <button class="btn secondary" data-action="practice-check" data-value="${prep.id}|${lesson.id}|${index}">Kiểm tra</button>
       </div>
       <p class="small" id="practice-result-${index}"></p>
-      <details><summary>Xem đáp án</summary><p style="white-space:pre-wrap">${esc(item.answer || 'Chưa có đáp án.')}</p></details>
+      <details><summary>Xem đáp án</summary><div>${rich(item.answer || 'Chưa có đáp án.')}</div></details>
     </div>`).join('')}</div>` : ''}
     ${empty ? `<div class="card"><p class="small">Bài học này chưa có nội dung chi tiết. Hãy tạo lại bằng AI.</p></div>` : ''}
     ${!lesson.done ? `<button class="btn" style="margin-top:14px" data-action="lesson-complete" data-value="${prep.id}|${lesson.id}">Đánh dấu đã học</button>` : '<p class="small">Đã hoàn thành bài này.</p>'}
@@ -370,7 +374,7 @@ function renderChallenges() {
   return `<div class="pad">
     <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">← ${esc(prep.title)}</button>
     <h1>Thử thách</h1>
-    ${(prep.challenges || []).map((challenge) => `<div class="item" style="margin-bottom:10px"><h3>${esc(challenge.title)}</h3><p>${esc(challenge.question)}</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/challenges/${challenge.id}">Làm</button></div>`).join('') || '<p>Chưa có thử thách.</p>'}
+    ${(prep.challenges || []).map((challenge) => `<div class="item" style="margin-bottom:10px"><h3>${esc(challenge.title)}</h3><p>${rich(challenge.question)}</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/challenges/${challenge.id}">Làm</button></div>`).join('') || '<p>Chưa có thử thách.</p>'}
   </div>`;
 }
 
@@ -382,10 +386,10 @@ function renderChallenge() {
   return `<div class="pad">
     <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">← ${esc(prep.title)}</button>
     <h1>${esc(challenge.title)}</h1>
-    <div class="card"><p>${esc(challenge.question)}</p>
+    <div class="card"><div>${rich(challenge.question)}</div>
       <div class="field"><label>Câu trả lời</label><textarea id="challenge-answer" class="input" rows="4">${result ? esc(result.details?.[0]?.given || '') : ''}</textarea></div>
       <button class="btn" data-action="challenge-submit" data-value="${prep.id}|${challenge.id}">Nộp bài</button>
-      ${result ? `<div style="margin-top:14px"><b>${result.score}/${result.total} điểm</b><p>${result.details?.map((d) => `${d.correct ? '✓' : '✗'} ${esc(d.question)}<br><span class="small">Đáp án: ${esc(d.expected)}</span>`).join('<br>')}</p></div>` : ''}
+      ${result ? `<div style="margin-top:14px"><b>${result.score}/${result.total} điểm</b><p>${result.details?.map((d) => `${d.correct ? '✓' : '✗'} ${rich(d.question)}<br><span class="small">Đáp án: ${rich(d.expected)}</span>`).join('<br>')}</p></div>` : ''}
     </div>
   </div>`;
 }
@@ -398,7 +402,7 @@ function renderMock() {
   return `<div class="pad">
     <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">← ${esc(prep.title)}</button>
     <h1>${esc(mock.title)}</h1><p>${mock.durationMinutes || 30} phút · ${mock.questions?.length || 0} câu</p>
-    ${(mock.questions || []).map((question, index) => `<div class="card" style="margin-bottom:10px"><b>Câu ${index + 1}. ${esc(question.question)}</b><div class="field" style="margin-top:8px"><textarea class="input" rows="3" data-qid="${question.id}">${result ? esc(result.details?.find((d) => d.id === question.id)?.given || '') : ''}</textarea></div>${result ? `<p class="small">${result.details?.find((d) => d.id === question.id)?.correct ? '✓ Đúng' : `✗ Đáp án: ${esc(question.answer)}`}</p>` : ''}</div>`).join('')}
+    ${(mock.questions || []).map((question, index) => `<div class="card" style="margin-bottom:10px"><b>Câu ${index + 1}. ${rich(question.question)}</b><div class="field" style="margin-top:8px"><textarea class="input" rows="3" data-qid="${question.id}">${result ? esc(result.details?.find((d) => d.id === question.id)?.given || '') : ''}</textarea></div>${result ? `<p class="small">${result.details?.find((d) => d.id === question.id)?.correct ? '✓ Đúng' : `✗ Đáp án: ${rich(question.answer)}`}</p>` : ''}</div>`).join('')}
     <button class="btn" data-action="mock-submit" data-value="${prep.id}|${mock.id}">Nộp đề</button>
     ${result ? `<div class="card" style="margin-top:14px"><h2>Kết quả: ${result.score}/${result.total}</h2></div>` : ''}
   </div>`;

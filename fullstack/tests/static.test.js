@@ -40,6 +40,16 @@ test('KaTeX is self-hosted and trust is disabled', () => {
   assert.ok(fs.existsSync(path.join(publicDir, 'vendor', 'katex', 'katex.min.css')));
 });
 
+test('exam prep text goes through the KaTeX pipeline', () => {
+  const features = read(publicDir, 'features.js');
+  assert.match(features, /function rich\(value\)/);
+  assert.match(features, /rich\(section\.body/);
+  assert.match(features, /rich\(example\.answer/);
+  assert.match(features, /rich\(item\.question/);
+  assert.doesNotMatch(features, /esc\(lesson\.intro\)/);
+  assert.doesNotMatch(features, /esc\(example\.problem\)/);
+});
+
 test('admin panel assets and routes are wired', () => {
   for (const file of ['admin.html', 'admin.js', 'admin.css']) {
     assert.ok(fs.existsSync(path.join(publicDir, file)), `missing ${file}`);
