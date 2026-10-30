@@ -680,17 +680,10 @@ p { line-height: 1.6; }
 
 .exam-home { max-width: 100%; }
 .exam-home-grid { display: flex; flex-direction: column; gap: 14px; }
-.exam-home-main { min-width: 0; container-type: inline-size; }
-
-/* When the list column itself is narrow, stack the actions under the meta. */
-@container (max-width: 560px) {
-  .exam-item { flex-direction: column; align-items: stretch; }
-  .exam-item .grow { width: 100%; }
-  .exam-item-actions { margin-left: 0; justify-content: flex-end; flex-wrap: wrap; }
-}
+.exam-home-main { min-width: 0; }
 
 /* 7-8" tablets behave like phones: one column, even in landscape. */
-html[data-device="phone"] .exam-home-grid { display: flex; flex-direction: column; }
+html[data-device="phone"] .exam-home-grid { display: flex; flex-direction: column; align-items: stretch; }
 html[data-device="phone"] .exam-home-main .list { display: flex; flex-direction: column; }
 
 /* 9"+ tablets get the split view from portrait upwards. */
@@ -723,9 +716,37 @@ html[data-device="phone"] .exam-home-main .list { display: flex; flex-direction:
   .icon-btn { width: 44px; height: 44px; }
   .exam-item-actions .icon-btn { width: 42px; height: 42px; }
 }
-.exam-item { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+/* The scrolling element must span the workspace so the scrollbar sits on the
+   window edge; only the content inside is width-limited and centred. */
+@media (min-width: 768px) {
+  .pad,
+  .chat-wrap {
+    max-width: none;
+    margin: 0;
+    padding-left: max(24px, calc((100% - 980px) / 2));
+    padding-right: max(24px, calc((100% - 980px) / 2));
+  }
+}
+@media (min-width: 1024px) {
+  .pad {
+    max-width: none;
+    padding-left: max(28px, calc((100% - 1280px) / 2));
+    padding-right: max(28px, calc((100% - 1280px) / 2));
+  }
+  .chat-wrap {
+    padding-left: max(24px, calc((100% - 900px) / 2));
+    padding-right: max(24px, calc((100% - 900px) / 2));
+  }
+  .exam-home {
+    padding-left: clamp(20px, 2.2vw, 40px);
+    padding-right: clamp(20px, 2.2vw, 40px);
+  }
+}
+html[data-device="phone"] .exam-home-side { position: static; }
+.exam-item { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
 .exam-item .grow { min-width: 0; }
-.exam-item-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.exam-item-actions { display: flex; align-items: center; gap: 8px; margin-left: 0; justify-content: flex-end; flex-wrap: wrap; }
 .exam-item-actions .btn { width: auto; }
 .exam-item-actions .icon-btn { width: 36px; height: 36px; color: var(--muted); }
 .exam-item-actions .icon-btn:hover { color: var(--danger); background: rgba(var(--danger-rgb), .12); }
@@ -748,3 +769,10 @@ html[data-device="phone"] .exam-home-main .list { display: flex; flex-direction:
 .attach-preview .ico { width: 18px; height: 18px; }
 .subject-bar .chip.active .ico { color: var(--accent); }
 .nav-item span { line-height: 1.1; }
+
+/* Wide screens: cards are ~500px inside the two-column list, so the row
+   layout fits again. Kept last so it wins over the stacked default. */
+@media (min-width: 1500px) {
+  .exam-item { flex-direction: row; align-items: center; }
+  .exam-item-actions { margin-left: auto; }
+}
