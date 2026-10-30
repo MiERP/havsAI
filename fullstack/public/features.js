@@ -255,11 +255,11 @@ function renderExamList() {
   return `<div class="pad exam-home">
     <div class="row exam-title-row">
       <h1>Kỳ thi</h1><div class="grow"></div>
-      <button class="icon-btn" data-action="nav" data-value="/exam-preps/search" title="Tìm kiếm">🔍</button>
+      <button class="icon-btn" data-action="nav" data-value="/exam-preps/search" title="Tìm kiếm">${icon('search')}</button>
       <button class="icon-btn send" data-action="open-exam-wizard" title="Tạo bài thi mới">${icon('plus')}</button>
     </div>
     <div class="hero-card">
-      <div class="hero-icon">🎯</div>
+      <div class="hero-icon">${icon('sparkle')}</div>
       <h2>Chuẩn bị cho kỳ thi tới của bạn</h2>
       <p>Thêm ghi chép của bạn hoặc chọn một kỳ thi chính thức, havsAI sẽ lập kế hoạch học tập đến ngày thi.</p>
       <button class="btn" data-action="open-exam-wizard">${icon('plus')} Tạo bài thi mới</button>
@@ -268,10 +268,10 @@ function renderExamList() {
     <p class="section-label">Bắt đầu từ</p>
     <div class="start-grid">
       <button class="start-card" data-action="open-exam-wizard" data-value="files">
-        <span class="start-icon">📤</span><b>Tệp của bạn</b><small>TẢI LÊN GHI CHÉP, HÌNH ẢNH HOẶC SÁCH GIÁO KHOA</small>
+        <span class="start-icon">${icon('upload')}</span><b>Tệp của bạn</b><small>TẢI LÊN GHI CHÉP, HÌNH ẢNH HOẶC SÁCH GIÁO KHOA</small>
       </button>
       <button class="start-card" data-action="open-exam-wizard" data-value="school">
-        <span class="start-icon">🏫</span><b>Trường của tôi</b><small>${esc((state.profile?.school || 'HAF LAAM') + ' · ' + (state.examPreps?.length || 0) + ' BỘ ÔN THI')}</small>
+        <span class="start-icon">${icon('book')}</span><b>Trường của tôi</b><small>${esc((state.profile?.school || 'HAF LAAM') + ' · ' + (state.examPreps?.length || 0) + ' BỘ ÔN THI')}</small>
       </button>
     </div>
     ${tabs}
@@ -290,7 +290,7 @@ function renderExamDetail() {
   if (!prep) return `<div class="pad"><p>${esc(state.routeError || 'Đang tải…')}</p></div>`;
   const mastery = prep.mastery || {};
   return `<div class="pad">
-    <button class="btn ghost" data-action="nav" data-value="/exam-preps">← Ôn thi</button>
+    <button class="btn ghost" data-action="nav" data-value="/exam-preps">${icon('chevron-left')} Ôn thi</button>
     <h1>${esc(prep.title)}</h1><p>${esc(subjectName(prep.subject))} · ${fmtDate(prep.examDate)} · ${esc(prep.status)}</p>
     ${(prep.materials || []).length
       ? `<p class="small">${icon('doc')} Tài liệu: ${(prep.materials || []).map((item) => `${esc(item.filename)}${item.pages ? ` (${item.pages} trang)` : ''}`).join(' · ')}</p>`
@@ -342,7 +342,7 @@ function renderLesson() {
   const example = lesson.example && (lesson.example.problem || (lesson.example.steps || []).length) ? lesson.example : null;
   const empty = !lesson.intro && !sections.length && !example;
   return `<div class="pad">
-    <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">← ${esc(prep.title)}</button>
+    <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">${icon('chevron-left')} ${esc(prep.title)}</button>
     <h1>${esc(lesson.title)}</h1>
     ${lesson.topics?.length ? `<p class="small">Chủ đề: ${lesson.topics.map((topic) => rich(topic)).join(' · ')}</p>` : ''}
     ${prep.plan?.generatedBy === 'fallback' ? `<div class="info-box"><span>ⓘ</span><p>AI chưa tạo được nội dung nên bài này chỉ có khung nhiệm vụ. <button class="btn ghost" data-action="exam-regenerate" data-value="${prep.id}">Tạo lại bằng AI</button></p></div>` : ''}
@@ -367,7 +367,7 @@ function renderChallenges() {
   const prep = state.exam;
   if (!prep) return `<div class="pad"><p>Đang tải…</p></div>`;
   return `<div class="pad">
-    <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">← ${esc(prep.title)}</button>
+    <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">${icon('chevron-left')} ${esc(prep.title)}</button>
     <h1>Thử thách</h1>
     ${(prep.challenges || []).map((challenge) => `<div class="item" style="margin-bottom:10px"><h3>${esc(challenge.title)}</h3><p>${rich(challenge.question)}</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/challenges/${challenge.id}">Làm</button></div>`).join('') || '<p>Chưa có thử thách.</p>'}
   </div>`;
@@ -379,7 +379,7 @@ function renderChallenge() {
   if (!challenge) return `<div class="pad"><p>Không tìm thấy thử thách.</p></div>`;
   const result = state.attempt;
   return `<div class="pad">
-    <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">← ${esc(prep.title)}</button>
+    <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">${icon('chevron-left')} ${esc(prep.title)}</button>
     <h1>${esc(challenge.title)}</h1>
     <div class="card"><div>${rich(challenge.question)}</div>
       <div class="field"><label>Câu trả lời</label><textarea id="challenge-answer" class="input" rows="4">${result ? esc(result.details?.[0]?.given || '') : ''}</textarea></div>
@@ -395,7 +395,7 @@ function renderMock() {
   if (!mock) return `<div class="pad"><p>Không tìm thấy đề thi thử.</p></div>`;
   const result = state.attempt;
   return `<div class="pad">
-    <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">← ${esc(prep.title)}</button>
+    <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">${icon('chevron-left')} ${esc(prep.title)}</button>
     <h1>${esc(mock.title)}</h1><p>${mock.durationMinutes || 30} phút · ${mock.questions?.length || 0} câu</p>
     ${(mock.questions || []).map((question, index) => `<div class="card" style="margin-bottom:10px"><b>Câu ${index + 1}. ${rich(question.question)}</b><div class="field" style="margin-top:8px"><textarea class="input" rows="3" data-qid="${question.id}">${result ? esc(result.details?.find((d) => d.id === question.id)?.given || '') : ''}</textarea></div>${result ? `<p class="small">${result.details?.find((d) => d.id === question.id)?.correct ? '✓ Đúng' : `✗ Đáp án: ${rich(question.answer)}`}</p>` : ''}</div>`).join('')}
     <button class="btn" data-action="mock-submit" data-value="${prep.id}|${mock.id}">Nộp đề</button>
@@ -407,7 +407,7 @@ function renderAttempt() {
   const attempt = state.attempt;
   if (!attempt) return `<div class="pad"><p>Không tìm thấy bài làm.</p></div>`;
   return `<div class="pad">
-    <button class="btn ghost" data-action="nav" data-value="${state.route.params.prepId ? `/exam-preps/${state.route.params.prepId}` : '/exam-preps/past'}">← Quay lại</button>
+    <button class="btn ghost" data-action="nav" data-value="${state.route.params.prepId ? `/exam-preps/${state.route.params.prepId}` : '/exam-preps/past'}">${icon('chevron-left')} Quay lại</button>
     <h1>Kết quả bài làm</h1>
     <div class="card"><h2>${attempt.score}/${attempt.total} điểm</h2><p>${new Date(attempt.created_at).toLocaleString('vi-VN')}</p></div>
     ${(attempt.details || []).map((detail) => `<div class="card" style="margin-top:10px"><b>${detail.correct ? '✓' : '✗'} ${esc(detail.question)}</b><p>Bạn trả lời: ${esc(detail.given || '')}</p><p class="small">Đáp án: ${esc(detail.expected || '')}</p></div>`).join('')}
@@ -430,7 +430,7 @@ function renderLabApp() {
   const app = state.labApp;
   if (!app) return `<div class="pad"><p>${esc(state.routeError || 'Đang tải…')}</p></div>`;
   return `<div class="pad">
-    <button class="btn ghost" data-action="nav" data-value="/lab">← Lab</button>
+    <button class="btn ghost" data-action="nav" data-value="/lab">${icon('chevron-left')} Lab</button>
     <h1>${esc(app.name)}</h1><p>${esc(app.prompt || '')}</p>
     <div class="row"><button class="btn secondary" data-action="lab-publish" data-value="${app.slug}|${app.visibility === 'public' ? 'private' : 'public'}">${app.visibility === 'public' ? 'Chuyển private' : 'Công khai'}</button></div>
     <iframe sandbox="allow-scripts" style="width:100%;height:440px;border:1px solid var(--line);border-radius:14px;background:#fff;margin-top:14px" srcdoc="${esc(app.html || '<p>Chưa có nội dung</p>')}"></iframe>
@@ -469,7 +469,7 @@ function renderShowcase() {
 function renderTeacher() {
   const teacher = state.teacher;
   if (!teacher) return `<div class="pad"><p>Không tìm thấy giáo viên.</p></div>`;
-  return `<div class="pad"><button class="btn ghost" data-action="nav" data-value="/teachers">← Giáo viên</button><h1>${esc(teacher.name || 'Giáo viên')}</h1><p>${esc(teacher.school || '')} · ${esc(teacher.class_name || teacher.className || '')}</p>
+  return `<div class="pad"><button class="btn ghost" data-action="nav" data-value="/teachers">${icon('chevron-left')} Giáo viên</button><h1>${esc(teacher.name || 'Giáo viên')}</h1><p>${esc(teacher.school || '')} · ${esc(teacher.class_name || teacher.className || '')}</p>
     <div class="list">${(state.teacherPreps || []).map((prep) => `<div class="item"><h3>${esc(prep.title)}</h3><p>${esc(subjectName(prep.subject))}</p><button class="btn secondary" data-action="nav" data-value="/share/a/${prep.shareId}">Xem</button></div>`).join('') || '<div class="item"><p>Chưa có đề công khai.</p></div>'}</div></div>`;
 }
 
@@ -479,7 +479,7 @@ function renderChild() {
     const links = state.dashboard?.children || [];
     return `<div class="pad"><h1>Tài khoản con</h1>${links.length ? links.map((link) => `<div class="item" style="margin-bottom:8px"><h3>${esc(link.child?.name || link.email)}</h3><p>${link.status === 'linked' ? `${link.child.chats} chat · ${link.child.preps} đề` : 'Đang chờ đăng ký'}</p>${link.child ? `<button class="btn secondary" data-action="nav" data-value="/child/${link.child.id}">Xem tiến độ</button>` : ''}</div>`).join('') : '<p>Chưa liên kết tài khoản con.</p>'}</div>`;
   }
-  return `<div class="pad"><button class="btn ghost" data-action="nav" data-value="/dashboard">← Tiến độ</button><h1>${esc(child.name || 'Học sinh')}</h1><p>${child.chats} chat · ${child.preps} đề · ${child.usageMinutes} phút</p>
+  return `<div class="pad"><button class="btn ghost" data-action="nav" data-value="/dashboard">${icon('chevron-left')} Tiến độ</button><h1>${esc(child.name || 'Học sinh')}</h1><p>${child.chats} chat · ${child.preps} đề · ${child.usageMinutes} phút</p>
     <div class="card"><h2>Đề ôn tập</h2>${(state.child.preps || []).map((prep) => `<div class="item" style="margin-bottom:8px"><h3>${esc(prep.title)}</h3>${prepProgress(prep)}</div>`).join('') || '<p>Chưa có đề.</p>'}</div>
     <div class="card" style="margin-top:14px"><h2>Hội thoại</h2>${(state.child.chats || []).map((chat) => `<div class="item" style="margin-bottom:8px"><h3>${esc(chat.title || 'Cuộc trò chuyện')}</h3><p>${esc(subjectName(chat.subject))}</p></div>`).join('') || '<p>Chưa có hội thoại.</p>'}</div>
   </div>`;
@@ -488,7 +488,7 @@ function renderChild() {
 function renderShare() {
   const prep = state.share?.prep || state.exam;
   if (!prep) return `<div class="pad"><p>${esc(state.routeError || 'Không tìm thấy đề chia sẻ.')}</p></div>`;
-  return `<div class="pad"><button class="btn ghost" data-action="nav" data-value="/showcase">← Khám phá</button><h1>${esc(prep.title)}</h1><p>${esc(state.share?.author?.name || 'Học sinh')} · ${esc(subjectName(prep.subject))} · ${fmtDate(prep.examDate)}</p>
+  return `<div class="pad"><button class="btn ghost" data-action="nav" data-value="/showcase">${icon('chevron-left')} Khám phá</button><h1>${esc(prep.title)}</h1><p>${esc(state.share?.author?.name || 'Học sinh')} · ${esc(subjectName(prep.subject))} · ${fmtDate(prep.examDate)}</p>
     <div class="row"><button class="btn" data-action="join-share" data-value="${prep.shareId}">Tham gia</button><button class="btn secondary" data-action="nav" data-value="/showcase">Khám phá thêm</button></div>
     <div class="card" style="margin-top:14px"><h2>Kế hoạch</h2>${(prep.plan?.days || []).map((day) => `<div style="margin:10px 0"><b>Ngày ${esc(day.day)} · ${esc(day.focus || '')}</b><ul>${(day.tasks || []).map((task) => `<li>${esc(task)}</li>`).join('')}</ul></div>`).join('')}</div>
   </div>`;
@@ -543,8 +543,8 @@ function renderHavsSettings() {
           <p class="small">Môi trường hiện tại: <b>${esc(deviceLabel)}</b> · Thông báo đẩy: <b>${esc(pushLabel)}</b></p>
           <p class="small">Đồng bộ thời gian thực qua SSE giữa PC, Mac, iPad, iPhone và Android.</p>
           <div class="row" style="margin-top:10px">
-            ${canInstall ? '<button class="btn secondary" data-action="install-app">📲 Cài ứng dụng (PWA)</button>' : ''}
-            <button class="btn ghost" data-action="request-push">🔔 Cấp quyền thông báo</button>
+            ${canInstall ? `<button class="btn secondary" data-action="install-app">${icon('download')} Cài ứng dụng (PWA)</button>` : ''}
+            <button class="btn ghost" data-action="request-push">${icon('bell')} Cấp quyền thông báo</button>
           </div>
         </div>
       </div>
@@ -564,7 +564,7 @@ function renderPaymentsDisabled() {
 function renderLegal() {
   const page = state.route.params.page;
   const titles = { support: 'Hỗ trợ', 'privacy-policy': 'Chính sách riêng tư', 'terms-conditions': 'Điều khoản sử dụng' };
-  return `<div class="pad"><button class="btn ghost" data-action="nav" data-value="/settings">← Cài đặt</button><h1>${titles[page] || 'Thông tin'}</h1><div class="card"><p>havsAI là bản viết lại phục vụ học tập. Dữ liệu chat, upload và tiến độ được lưu trên server của bạn. Không có thanh toán.</p><p>Liên hệ: support@havs.ai</p></div></div>`;
+  return `<div class="pad"><button class="btn ghost" data-action="nav" data-value="/settings">${icon('chevron-left')} Cài đặt</button><h1>${titles[page] || 'Thông tin'}</h1><div class="card"><p>havsAI là bản viết lại phục vụ học tập. Dữ liệu chat, upload và tiến độ được lưu trên server của bạn. Không có thanh toán.</p><p>Liên hệ: support@havs.ai</p></div></div>`;
 }
 
 document.addEventListener('click', async (event) => {
@@ -662,7 +662,7 @@ document.addEventListener('click', async (event) => {
         body: JSON.stringify({ answer })
       });
       if (target) {
-        target.textContent = data.correct ? '✅ Chính xác!' : `❌ Chưa đúng. Đáp án đúng: ${data.expected || 'xem gợi ý'}`;
+        target.textContent = data.correct ? 'Chính xác!' : `Chưa đúng. Đáp án đúng: ${data.expected || 'xem gợi ý'}`;
         target.style.color = data.correct ? 'var(--accent-2)' : '#b91c1c';
       }
     } catch (error) {
@@ -800,10 +800,10 @@ window.addEventListener('popstate', () => {
 });
 
 const EXAM_SOURCES = [
-  ['files', '📤', 'Tệp của bạn', 'TẢI LÊN GHI CHÉP, HÌNH ẢNH HOẶC SÁCH GIÁO KHOA'],
-  ['school', '🏫', 'Trường của tôi', 'BỘ ĐỀ VÀ TÀI LIỆU CỦA TRƯỜNG'],
-  ['curriculum', '📘', 'Chương trình học', 'TOÁN HỌC · TIỂU HỌC (LỚP 1-5), LỚP...'],
-  ['official', '🇻🇳', 'Kỳ thi chính thức', 'ĐỀ THI CHÍNH THỨC']
+  ['files', 'upload', 'Tệp của bạn', 'TẢI LÊN GHI CHÉP, HÌNH ẢNH HOẶC SÁCH GIÁO KHOA'],
+  ['school', 'book', 'Trường của tôi', 'BỘ ĐỀ VÀ TÀI LIỆU CỦA TRƯỜNG'],
+  ['curriculum', 'book', 'Chương trình học', 'TOÁN HỌC · TIỂU HỌC (LỚP 1-5), LỚP...'],
+  ['official', 'check', 'Kỳ thi chính thức', 'ĐỀ THI CHÍNH THỨC']
 ];
 
 function examDateISO(offset) {
@@ -846,10 +846,10 @@ function renderExamWizard() {
           <span class="icon-btn invisible">${icon('close')}</span>
         </div>
         <div class="source-list">
-          ${EXAM_SOURCES.map(([id, icon, title, subtitle]) => `<button class="source-option ${wizard.source === id ? 'active' : ''}" data-action="wizard-source" data-value="${id}">
-            <span class="source-icon">${icon}</span>
+          ${EXAM_SOURCES.map(([id, ico, title, subtitle]) => `<button class="source-option ${wizard.source === id ? 'active' : ''}" data-action="wizard-source" data-value="${id}">
+            <span class="source-icon">${icon(ico)}</span>
             <span class="grow" style="text-align:left"><b>${title}</b><small>${subtitle}</small></span>
-            ${wizard.source === id ? '<span class="source-check">✓</span>' : ''}
+            ${wizard.source === id ? `<span class="source-check">${icon('check')}</span>` : ''}
           </button>`).join('')}
         </div>
         <button class="btn" data-action="wizard-next">Tiếp tục</button>
@@ -859,7 +859,7 @@ function renderExamWizard() {
 
   const progress = wizard.step === 1 ? 33 : wizard.step === 2 ? 66 : 100;
   const bar = `<div class="wizard-bar">
-    <button class="icon-btn" data-action="${wizard.step === 1 ? 'close-wizard' : 'wizard-back'}">←</button>
+      <button class="icon-btn" data-action="${wizard.step === 1 ? 'close-wizard' : 'wizard-back'}">${icon('chevron-left')}</button>
     <div class="wizard-progress"><span style="width:${progress}%"></span></div>
     <button class="icon-btn" data-action="close-wizard">${icon('close')}</button>
   </div>`;
@@ -913,15 +913,15 @@ function renderExamWizard() {
     <h1 class="center-text wizard-title">Tải tài liệu học lên</h1>
     <p class="center-text">Chỉ nội dung môn ${esc(subjectName(wizard.subject))}</p>
     <div class="upload-hero">
-      <div class="upload-phone">📱</div>
+      <div class="upload-phone">${icon('camera', 'ico-lg')}</div>
       <b>Chụp ảnh</b>
       <p>Từ ghi chép, sách giáo khoa và đề thi cũ của bạn.</p>
       <button class="btn" style="width:auto" data-action="wizard-upload" data-value="camera">Mở máy ảnh</button>
     </div>
     <p class="section-label center-text">Lựa chọn khác</p>
     <div class="row" style="justify-content:center">
-      <button class="btn secondary" data-action="wizard-upload" data-value="gallery">🖼 Thư viện ảnh</button>
-      <button class="btn secondary" data-action="wizard-upload" data-value="file">📁 Chọn tệp</button>
+      <button class="btn secondary" data-action="wizard-upload" data-value="gallery">${icon('image')} Thư viện ảnh</button>
+      <button class="btn secondary" data-action="wizard-upload" data-value="file">${icon('folder')} Chọn tệp</button>
     </div>
     <input id="wizard-camera" type="file" accept="image/*" capture="environment" class="hidden" />
     <input id="wizard-gallery" type="file" accept="image/*" class="hidden" />
@@ -1009,7 +1009,7 @@ function renderProfilePage() {
       <div class="profile-avatar">${esc(name[0].toUpperCase())}</div>
       <h1>${esc(name)}</h1>
       <p>${esc(meta)}</p>
-      <button class="btn secondary profile-settings" data-action="nav" data-value="/settings">⚙ Cài đặt</button>
+      <button class="btn secondary profile-settings" data-action="nav" data-value="/settings">${icon('settings')} Cài đặt</button>
     </div>
     <div class="card plan-card">
       <div class="row">
@@ -1018,12 +1018,12 @@ function renderProfilePage() {
       </div>
     </div>
     <button class="card invite-card" data-action="invite">
-      <span class="coin">🪙</span>
+      <span class="coin">${icon('sparkle')}</span>
       <span class="grow" style="text-align:left"><b>Mời bạn & nhận thêm lượt dùng</b><p>Nhận đến 400x lượt dùng khi bạn mời bạn bè.</p></span>
       <span class="chev">›</span>
     </button>
     <div class="card streak-card">
-      <div class="row"><span class="flame">🔥</span><div class="grow"><b>Bạn chưa có streak nào</b><p>Hãy bắt đầu ngay hôm nay và tạo streak đầu tiên của bạn!</p></div></div>
+      <div class="row"><span class="flame">${icon('flame')}</span><div class="grow"><b>Bạn chưa có streak nào</b><p>Hãy bắt đầu ngay hôm nay và tạo streak đầu tiên của bạn!</p></div></div>
       <div class="streak-week">${week.map((label, index) => `<div class="streak-day ${index === today ? 'today' : ''}"><span>${label}</span><i>🔥</i></div>`).join('')}</div>
     </div>
     <p class="small center-text muted" style="margin-top:16px">${esc(state.user?.email || '')}</p>

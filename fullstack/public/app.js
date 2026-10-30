@@ -1,4 +1,4 @@
-const SUBJECTS = [
+﻿const SUBJECTS = [
   ['math', 'Toán'], ['physics', 'Lý'], ['chemistry', 'Hóa'], ['cs', 'Tin'],
   ['english', 'Anh'], ['german', 'Đức'], ['spanish', 'Tây Ban Nha'], ['french', 'Pháp'],
   ['biology', 'Sinh'], ['geography', 'Địa'], ['history', 'Sử'], ['literature', 'Văn'],
@@ -182,7 +182,7 @@ const havsPlatform = {
     }
     const ua = navigator.userAgent || '';
     if (/iPad|iPhone|iPod/i.test(ua)) {
-      toast('Trên iPhone/iPad: bấm nút Chia sẻ (⬆) → "Thêm vào MH chính"');
+      toast('Trên iPhone/iPad: bấm nút Chia sẻ → "Thêm vào MH chính"');
     } else {
       toast('Trên máy tính/Android: bấm biểu tượng Cài đặt (⊕) trên thanh địa chỉ trình duyệt');
     }
@@ -619,9 +619,9 @@ function messageTools(m) {
 function toolChips(tools) {
   if (!tools || !tools.length) return '';
   return `<div class="tools">${tools.filter((t) => t.status !== 'started' && t.status !== 'error').map((t) => {
-    if (t.tool === 'web_search') return `<span class="tool">🔎 ${esc(t.query || 'web search')}${t.results?.length ? ` · ${t.results.length} kết quả` : ''}</span>`;
-    if (t.tool === 'vision_analyze') return `<span class="tool">👁 ${esc(t.filename || 'ảnh')}${t.chars ? ` · ${t.chars} ký tự` : ''}</span>`;
-    return `<span class="tool">📄 ${esc(t.filename || 'tài liệu')}${t.pages ? ` · ${t.pages} trang` : ''}${t.scanned ? ' · OCR' : ''}</span>`;
+    if (t.tool === 'web_search') return `<span class="tool">${icon('search')} ${esc(t.query || 'web search')}${t.results?.length ? ` · ${t.results.length} kết quả` : ''}</span>`;
+    if (t.tool === 'vision_analyze') return `<span class="tool">${icon('eye')} ${esc(t.filename || 'ảnh')}${t.chars ? ` · ${t.chars} ký tự` : ''}</span>`;
+    return `<span class="tool">${icon('doc')} ${esc(t.filename || 'tài liệu')}${t.pages ? ` · ${t.pages} trang` : ''}${t.scanned ? ' · OCR' : ''}</span>`;
   }).join('')}</div>`;
 }
 
@@ -726,12 +726,12 @@ function addToolChip(container, event) {
       const chip = document.createElement('span');
       chip.className = 'tool';
       chip.dataset.vision = '1';
-      chip.textContent = `👁 Đang đọc ảnh…`;
+      chip.textContent = 'Đang đọc ảnh…';
       container.appendChild(chip);
     } else {
       const label = event.status === 'done'
-        ? `👁 ${event.filename || 'ảnh'}${event.chars ? ` · ${event.chars} ký tự` : ''}`
-        : `👁 Không đọc được ảnh`;
+        ? `${event.filename || 'ảnh'}${event.chars ? ` · ${event.chars} ký tự` : ''}`
+        : 'Không đọc được ảnh';
       if (existing) {
         existing.dataset.vision = '';
         existing.textContent = label;
@@ -748,7 +748,7 @@ function addToolChip(container, event) {
     const chip = document.createElement('span');
     chip.className = 'tool';
     chip.dataset.started = '1';
-    chip.textContent = `🔎 Đang tìm: ${event.query || ''}`;
+    chip.textContent = `Đang tìm: ${event.query || ''}`;
     container.appendChild(chip);
     return;
   }
@@ -756,20 +756,20 @@ function addToolChip(container, event) {
     const started = container.querySelector('[data-started="1"]');
     if (started) {
       started.dataset.started = '';
-      started.textContent = `🔎 ${event.query || 'web search'} · ${event.results?.length || 0} kết quả`;
+      started.textContent = `${event.query || 'web search'} · ${event.results?.length || 0} kết quả`;
       if (event.results?.length) {
         started.title = event.results.map((r) => `${r.title} — ${r.url}`).join('\n');
       }
     } else {
       const chip = document.createElement('span');
       chip.className = 'tool';
-      chip.textContent = `🔎 ${event.query || 'web search'} · ${event.results?.length || 0} kết quả`;
+      chip.textContent = `${event.query || 'web search'} · ${event.results?.length || 0} kết quả`;
       container.appendChild(chip);
     }
   } else if (event.tool === 'read_material') {
     const chip = document.createElement('span');
     chip.className = 'tool';
-    chip.textContent = `📄 ${event.filename || 'tài liệu'}${event.pages ? ` · ${event.pages} trang` : ''}${event.scanned ? ' · OCR' : ''}`;
+    chip.textContent = `${event.filename || 'tài liệu'}${event.pages ? ` · ${event.pages} trang` : ''}${event.scanned ? ' · OCR' : ''}`;
     container.appendChild(chip);
   }
 }
