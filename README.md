@@ -135,6 +135,12 @@ curl http://localhost:3000/api/health
 - Bài học hiển thị tại `/exam-preps/:id/lessons/:lessonId`: lý thuyết, ví dụ có lời giải,
   luyện tập nhập đáp án và được chấm ngay (`/lessons/:lessonId/practice/:index`).
   “Đánh dấu đã học” lưu trong `preps.lessons_json` và giữ nguyên khi tạo lại nội dung.
+- **Bài kiểm tra mỗi bài**: 10 câu, tối đa 15 phút, sinh khi mở lần đầu
+  (`/lessons/:lessonId/quiz`) từ nội dung bài + tài liệu; nộp bài thì chấm ngay,
+  đạt ≥70% tự đánh dấu bài đã học.
+- **Đề thi thử**: tổng số câu = số ngày × 10, chia thành các đề tối đa 20 câu;
+  thời gian = 1,5 phút/câu (10 câu → 15 phút, 20 câu → 30 phút). Câu hỏi sinh khi mở đề
+  (`/mock-exams/:mockId/questions`). Cả hai trang đều có đồng hồ đếm ngược và tự nộp khi hết giờ.
 - Nếu model lỗi/timeout/trả JSON hỏng, kế hoạch rơi về mẫu chung, `plan.generatedBy = "fallback"`,
   trang ghi rõ lỗi kèm nút “Tạo lại bằng AI”.
 - Giới hạn tải lên: `MAX_UPLOAD_MB` (mặc định 20MB, khớp `UPLOAD_MAX_MB` phía client);
