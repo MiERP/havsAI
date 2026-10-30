@@ -508,18 +508,37 @@ function renderChat() {
   </div>`;
 }
 
-function renderTex(tex, display) {
-  if (!window.katex || !String(tex || '').trim()) return esc(tex || '');
-  try {
-    return window.katex.renderToString(tex.trim(), {
-      displayMode: !!display,
-      throwOnError: false,
-      strict: 'ignore',
-      trust: false
-    });
-  } catch {
-    return esc(tex);
+function salvageTex(tex) {
+  let value = String(tex || '').trim();
+  value = value.replace(/\\[a-zA-Z]+\s*\{[^{}]*$/, '').trim();
+  let open = 0;
+  for (const char of value) {
+    if (char === '{') open += 1;
+    else if (char === '}') open -= 1;
   }
+  if (open > 0) value += '}'.repeat(open);
+  else if (open < 0) value = value.replace(/\}+$/, '');
+  return value.trim();
+}
+
+function renderTex(tex, display, incomplete) {
+  const source = String(tex || '').trim();
+  if (!window.katex || !source) return esc(source);
+  const attempts = incomplete ? [source, salvageTex(source)] : [source];
+  for (const attempt of attempts) {
+    if (!attempt) continue;
+    try {
+      const html = window.katex.renderToString(attempt, {
+        displayMode: !!display,
+        throwOnError: false,
+        strict: 'ignore',
+        trust: false
+      });
+      if (html.includes('katex-error')) continue;
+      return incomplete ? `${html}<span class="math-tail">…</span>` : html;
+    } catch {}
+  }
+  return `<span class="math-tail">${esc(salvageTex(source))}…</span>`;
 }
 
 function looksLikeBareMath(line) {
@@ -561,8 +580,20 @@ function formatMessage(text) {
     parts.push({ tex, display });
     last = pattern.lastIndex;
   }
-  if (last < source.length) parts.push({ text: source.slice(last) });
-  return parts.map((part) => part.tex !== undefined ? renderTex(part.tex, part.display) : formatTextBlock(part.text)).join('');
+  if (last < source.length) {
+    const rest = source.slice(last);
+    const opener = /(\$\$|\\\[)/.exec(rest);
+    if (opener) {
+      const body = rest.slice(opener.index + opener[1].length);
+      parts.push({ text: rest.slice(0, opener.index) });
+      if (body.trim()) parts.push({ tex: body, display: true, incomplete: true });
+    } else {
+      parts.push({ text: rest });
+    }
+  }
+  return parts.map((part) => part.tex !== undefined
+    ? renderTex(part.tex, part.display, part.incomplete)
+    : formatTextBlock(part.text)).join('');
 }
 
 function messageTools(m) {
@@ -974,6 +1005,7 @@ async function sendMessage(text) {
     const decoder = new TextDecoder();
     let buffer = '';
     let full = '';
+    let truncated = false;
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -990,6 +1022,10 @@ async function sendMessage(text) {
             addToolChip(toolsEl, json);
             continue;
           }
+          if (json.type === 'truncated') {
+            truncated = true;
+            continue;
+          }
           if (json.type === 'token') {
             full += json.value;
             contentEl.textContent = full;
@@ -1004,6 +1040,7 @@ async function sendMessage(text) {
         }
       }
     }
+    if (truncated) toast('Câu trả lời bị cắt do giới hạn độ dài. Hỏi tiếp để lấy phần còn lại.');
     state.messages.push({ role: 'assistant', content: full, tools_json: JSON.stringify(toolEvents) });
     state.imageUrl = null;
     state.uploadId = null;

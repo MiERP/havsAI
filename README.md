@@ -142,6 +142,9 @@ curl http://localhost:3000/api/health
 
 ## Luồng đã triển khai
 
+- **Chat**: giới hạn `CHAT_MAX_TOKENS` (mặc định 4096). Khi model dừng vì hết token,
+  server gửi sự kiện `truncated`; UI báo “câu trả lời bị cắt” và công thức dở dang
+  được dựng phần đọc được kèm dấu `…` thay vì in thô `$`/`\frac{`.
 - **Chat tools**
   - `web_search`: DuckDuckGo HTML + Wikipedia fallback; kết quả được chèn vào ngữ cảnh và hiển thị chip `🔎` trong chat.
   - `read_material`: đọc file text/markdown, PDF.js trích text PDF, và OCR trang scan

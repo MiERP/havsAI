@@ -114,6 +114,7 @@ p { color: var(--muted); line-height: 1.55; margin: 0 0 16px; }
 .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; margin: 6px 0; scrollbar-width: none; }
 .math-block::-webkit-scrollbar, .katex-display::-webkit-scrollbar { display: none; }
 .katex { font-size: 1.03em; }
+.math-tail { opacity: .55; font-style: italic; }
 .msg.assistant .bubble { background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 6px; }
 .msg.user .bubble { background: var(--accent); color: var(--on-accent); border-bottom-right-radius: 6px; }
 .bubble img { display: block; max-width: 100%; border-radius: 10px; margin-bottom: 8px; }

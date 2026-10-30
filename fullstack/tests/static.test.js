@@ -50,6 +50,18 @@ test('exam prep text goes through the KaTeX pipeline', () => {
   assert.doesNotMatch(features, /esc\(example\.problem\)/);
 });
 
+test('truncated chat answers are signalled and partial math is salvaged', () => {
+  const server = read(root, 'fullstack', 'server.js');
+  assert.match(server, /CHAT_MAX_TOKENS/);
+  assert.match(server, /type: 'truncated'/);
+
+  const app = read(publicDir, 'app.js');
+  assert.match(app, /function salvageTex\(/);
+  assert.match(app, /incomplete: true/);
+  assert.match(app, /json\.type === 'truncated'/);
+  assert.match(read(publicDir, 'styles.css'), /\.math-tail/);
+});
+
 test('admin panel assets and routes are wired', () => {
   for (const file of ['admin.html', 'admin.js', 'admin.css']) {
     assert.ok(fs.existsSync(path.join(publicDir, file)), `missing ${file}`);

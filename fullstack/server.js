@@ -45,6 +45,7 @@ const ALLOW_DEV_OTP = !IS_PRODUCTION && process.env.ALLOW_DEV_OTP === 'true';
 const PDF_MAX_PAGES = Number(process.env.PDF_MAX_PAGES || 50);
 const PDF_VISION_PAGES = Number(process.env.PDF_VISION_PAGES || 3);
 const PDF_VISION_CONCURRENCY = Number(process.env.PDF_VISION_CONCURRENCY || 2);
+const CHAT_MAX_TOKENS = Number(process.env.CHAT_MAX_TOKENS || 4096);
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 20);
 const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 const MAX_UPLOAD_BODY = Math.ceil(MAX_UPLOAD_BYTES * 1.4) + 65536;
@@ -975,7 +976,7 @@ async function streamChatCompletion(res, config, subject, messages, extraContext
     body: JSON.stringify({
       model: config.model,
       stream: true,
-      max_tokens: 1600,
+      max_tokens: CHAT_MAX_TOKENS,
       messages: [
         {
           role: 'system',
@@ -997,6 +998,7 @@ async function streamChatCompletion(res, config, subject, messages, extraContext
   const decoder = new TextDecoder();
   let buffer = '';
   let full = '';
+  let finishReason = '';
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -1010,13 +1012,18 @@ async function streamChatCompletion(res, config, subject, messages, extraContext
       if (!payload || payload === '[DONE]') continue;
       try {
         const json = JSON.parse(payload);
-        const delta = json.choices?.[0]?.delta?.content;
+        const choice = json.choices?.[0];
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
+        const delta = choice?.delta?.content;
         if (delta) {
           full += delta;
           res.write(`data: ${JSON.stringify({ type: 'token', value: delta })}\n\n`);
         }
       } catch {}
     }
+  }
+  if (finishReason === 'length') {
+    res.write(`data: ${JSON.stringify({ type: 'truncated' })}\n\n`);
   }
   return full;
 }
