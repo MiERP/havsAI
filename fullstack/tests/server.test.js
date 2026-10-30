@@ -372,6 +372,59 @@ test('the requested number of study days is stored with the prep', async () => {
   assert.equal(prep.planDays, 8);
 });
 
+test('mock exams split ten questions per study day into 20-question papers', async () => {
+  const cookie = await login('mockplan@example.com');
+  const created = await request('POST', '/api/preps', { title: 'Chia de thi', subject: 'math' }, cookie);
+  const prepId = (await created.json()).id;
+  const generated = await request('POST', `/api/exam-preps/${prepId}/generate`, {}, cookie);
+  assert.equal(generated.status, 200);
+  const { prep } = await generated.json();
+  const days = prep.plan.days.length;
+  const total = prep.mockExams.reduce((sum, mock) => sum + mock.questionCount, 0);
+  assert.equal(total, days * 10);
+  for (const mock of prep.mockExams) {
+    assert.ok(mock.questionCount <= 20, `too many questions: ${mock.questionCount}`);
+    assert.equal(mock.durationMinutes, Math.round(mock.questionCount * 1.5));
+  }
+});
+
+test('a lesson quiz marks the lesson done from 70 percent', async () => {
+  const cookie = await login('quiz@example.com');
+  const created = await request('POST', '/api/preps', { title: 'Quiz bai hoc', subject: 'math' }, cookie);
+  const prepId = (await created.json()).id;
+  const days = Array.from({ length: 10 }, (_, index) => ({
+    day: index + 1,
+    focus: `Bai ${index + 1}`,
+    tasks: ['Doc bai'],
+    lesson: { intro: 'Noi dung', sections: [], example: null },
+    practice: []
+  }));
+  const plan = { version: 2, title: 'Quiz bai hoc', subject: 'math', days, practice: [], tips: [] };
+  const lessons = days.map((day, index) => ({
+    id: `lesson-${index + 1}`,
+    title: `Bai ${index + 1}`,
+    focus: day.focus,
+    topics: [],
+    intro: 'Noi dung',
+    sections: [],
+    example: null,
+    practice: [],
+    quiz: Array.from({ length: 10 }, (_, q) => ({ id: `q${q + 1}`, question: `Cau ${q + 1}?`, answer: String(q + 1) })),
+    done: false
+  }));
+  db.prepare('UPDATE preps SET plan_json = ?, lessons_json = ? WHERE id = ?')
+    .run(JSON.stringify(plan), JSON.stringify(lessons), prepId);
+
+  const answers = {};
+  for (let index = 0; index < 10; index += 1) answers[`q${index + 1}`] = String(index + 1);
+  const attempt = await request('POST', `/api/exam-preps/${prepId}/lessons/lesson-1/quiz/attempt`, { answers }, cookie);
+  assert.equal(attempt.status, 200);
+  const body = await attempt.json();
+  assert.equal(body.attempt.score, 10);
+  assert.equal(body.attempt.total, 10);
+  assert.equal(body.prep.lessons[0].done, true);
+});
+
 test('lesson practice answers are checked against the stored answer', async () => {
   const cookie = await login('practice@example.com');
   const created = await request('POST', '/api/preps', { title: 'Luyen tap', subject: 'math' }, cookie);

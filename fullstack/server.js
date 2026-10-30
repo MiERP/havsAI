@@ -486,29 +486,39 @@ function buildPlanPrompt(prep, materialName, materialText, days) {
   return lines.join('\n');
 }
 
-async function generatePrepPlan(prep, userId) {
-  let error = '';
-  const materialNames = [];
-  const materialParts = [];
+async function collectMaterialContext(prep, userId, perMaterialBudget = 14000, totalBudget = 24000) {
+  const names = [];
+  const parts = [];
   const materialIds = prepMaterialIds(prep);
-  const budget = materialIds.length > 1 ? Math.floor(24000 / materialIds.length) : 14000;
+  const budget = materialIds.length > 1 ? Math.floor(totalBudget / materialIds.length) : perMaterialBudget;
   for (const uploadId of materialIds) {
     try {
       const row = findUpload(userId, uploadId);
       if (!row) continue;
-      materialNames.push(row.filename || 'tài liệu');
+      names.push(row.filename || 'tài liệu');
       const material = /^image\//i.test(row.mime || '')
         ? await analyzeImageUpload(userId, uploadId)
         : await extractUploadText(userId, uploadId);
       if (material?.text) {
-        materialParts.push(`--- ${row.filename || 'tài liệu'} ---\n${String(material.text).slice(0, Math.max(3000, budget))}`);
+        parts.push(`--- ${row.filename || 'tài liệu'} ---\n${String(material.text).slice(0, Math.max(3000, budget))}`);
       }
-    } catch (cause) {
-      error = `material_${cause.message}`;
-    }
+    } catch {}
   }
-  const materialText = materialParts.join('\n\n').slice(0, 24000);
-  const materialName = materialNames.join(', ');
+  return { names, text: parts.join('\n\n').slice(0, totalBudget) };
+}
+
+async function generatePrepPlan(prep, userId) {
+  let error = '';
+  const materialIds = prepMaterialIds(prep);
+  let material;
+  try {
+    material = await collectMaterialContext(prep, userId);
+  } catch (cause) {
+    material = { names: [], text: '' };
+    error = `material_${cause.message}`;
+  }
+  const materialText = material.text;
+  const materialName = material.names.join(', ');
   const days = resolvePlanDays(prep, materialIds.length);
 
   const prompt = buildPlanPrompt(prep, materialName, materialText, days);
@@ -546,6 +556,88 @@ async function generatePrepPlan(prep, userId) {
   if (materialName) plan.materialName = materialName;
   if (!usedAi && error) plan.error = String(error).slice(0, 160);
   return { plan, usedAi };
+}
+
+const QUESTION_SYSTEM =
+  'Bạn là giáo viên ra đề cho học sinh Việt Nam. Chỉ trả về JSON hợp lệ dạng ' +
+  '{"questions":[{"question":string,"answer":string}]}. Mỗi câu phải tự chứa đủ dữ kiện, ' +
+  'đáp án ngắn gọn (số, biểu thức hoặc 1-2 từ) để chấm tự động. Viết công thức bằng LaTeX trong $...$. ' +
+  'Không kèm markdown, không giải thích ngoài JSON.';
+
+async function generateQuestions(options) {
+  const { subject, title, scope, lessonText, materialText, count, avoid } = options;
+  const lines = [
+    `Môn: ${subject || 'chung'}`,
+    `Kỳ ôn: ${title || ''}`,
+    `Phạm vi: ${scope || 'toàn bộ kế hoạch'}`,
+    `Số câu cần tạo: ${count}`
+  ];
+  if (lessonText) lines.push(`Nội dung bài học:\n${String(lessonText).slice(0, 4000)}`);
+  if (materialText) lines.push(`Tài liệu tham khảo:\n${materialText}`);
+  if (avoid && avoid.length) lines.push(`Không lặp lại các câu sau: ${avoid.slice(0, 20).join(' | ')}`);
+  if (options.requireNoOptions !== false) lines.push('Không dùng câu hỏi trắc nghiệm A/B/C/D, chỉ dùng câu hỏi trả lời ngắn.');
+  const result = await callModelJson(QUESTION_SYSTEM, lines.join('\n'), {
+    maxTokens: Math.min(8000, 700 + count * 220)
+  });
+  const parsed = parseJsonLoose(result.content);
+  const list = Array.isArray(parsed?.questions) ? parsed.questions : [];
+  return list
+    .filter((item) => item && String(item.question || '').trim())
+    .slice(0, count)
+    .map((item, index) => ({
+      id: `q${index + 1}`,
+      question: String(item.question).trim().slice(0, 900),
+      answer: String(item.answer || '').trim().slice(0, 400)
+    }));
+}
+
+async function ensureQuizQuestions(prep, userId, lesson, target = 10) {
+  let quiz = Array.isArray(lesson.quiz) ? lesson.quiz.slice() : [];
+  if (quiz.length >= target) return quiz;
+  const material = await collectMaterialContext(prep, userId, 6000, 8000).catch(() => ({ text: '' }));
+  const lessonText = [
+    lesson.intro,
+    ...(lesson.sections || []).map((section) => `${section.heading || ''}: ${section.body || ''}`),
+    ...(lesson.practice || []).map((item) => `${item.question} => ${item.answer}`)
+  ].filter(Boolean).join('\n');
+  for (let attempt = 0; attempt < 2 && quiz.length < target; attempt += 1) {
+    const more = await generateQuestions({
+      subject: prep.subject,
+      title: prep.title,
+      scope: lesson.title,
+      lessonText,
+      materialText: material.text,
+      count: target - quiz.length,
+      avoid: quiz.map((item) => item.question)
+    });
+    if (!more.length) break;
+    quiz = quiz.concat(more.map((item, index) => ({ ...item, id: `q${quiz.length + index + 1}` })));
+  }
+  lesson.quiz = quiz;
+  return quiz;
+}
+
+async function ensureMockQuestions(prep, userId, mock) {
+  const target = mock.questionCount || 20;
+  let questions = Array.isArray(mock.questions) ? mock.questions.slice() : [];
+  if (questions.length >= target) return questions;
+  const material = await collectMaterialContext(prep, userId, 6000, 8000).catch(() => ({ text: '' }));
+  const plan = parseJsonValue(prep.plan_json, null) || {};
+  const scope = (plan.topics || []).join('; ') || prep.title || '';
+  for (let attempt = 0; attempt < 2 && questions.length < target; attempt += 1) {
+    const more = await generateQuestions({
+      subject: prep.subject,
+      title: prep.title,
+      scope,
+      materialText: material.text,
+      count: target - questions.length,
+      avoid: questions.map((item) => item.question)
+    });
+    if (!more.length) break;
+    questions = questions.concat(more.map((item, index) => ({ ...item, id: `q${questions.length + index + 1}` })));
+  }
+  mock.questions = questions;
+  return questions;
 }
 
 function buildLessonFromDay(day, index, fallbackPractice) {
@@ -1085,27 +1177,28 @@ function ensurePrepExtras(prep) {
       shareId: null
     }));
   }
-  let mockExams = parseJsonValue(prep.mock_json, null);
-  if (!Array.isArray(mockExams) || !mockExams.length) {
-    const questions = (plan.practice || []).slice(0, 5).map((item, index) => ({
-      id: `q${index + 1}`,
-      question: item.question,
-      answer: item.answer || ''
-    }));
-    while (questions.length < 5) {
-      const n = questions.length + 1;
-      questions.push({
-        id: `q${n}`,
-        question: `Trình bày một dạng bài trọng tâm của ${prep.title} và cách giải.`,
-        answer: 'Nêu dạng bài, công thức/phương pháp và ví dụ áp dụng.'
-      });
-    }
-    mockExams = [{
-      id: 'mock-1',
-      title: `Đề thi thử — ${prep.title}`,
-      durationMinutes: 30,
-      questions
-    }];
+  const storedMocks = parseJsonValue(prep.mock_json, null);
+  const previousMocks = Array.isArray(storedMocks) ? storedMocks : [];
+  const totalQuestions = Math.max(10, (lessons.length || (plan.days || []).length || 5) * 10);
+  const examCount = Math.ceil(totalQuestions / 20);
+  const mockExams = [];
+  let remainingQuestions = totalQuestions;
+  for (let index = 0; index < examCount; index += 1) {
+    const count = Math.min(20, remainingQuestions);
+    remainingQuestions -= count;
+    const id = `mock-${index + 1}`;
+    const previous = previousMocks.find((item) => item.id === id);
+    mockExams.push({
+      id,
+      title: `Đề thi thử ${index + 1} — ${count} câu`,
+      questionCount: count,
+      durationMinutes: Math.round(count * 1.5),
+      questions: Array.isArray(previous?.questions) ? previous.questions.slice(0, count) : []
+    });
+  }
+  for (const previous of previousMocks) {
+    if (mockExams.some((item) => item.id === previous.id)) continue;
+    if (Array.isArray(previous.questions) && previous.questions.length) mockExams.push(previous);
   }
   const mastery = parseJsonValue(prep.mastery_json, null) || {};
   const attemptStats = db.prepare(
@@ -1884,6 +1977,40 @@ function route(req, res) {
       return send(res, 200, { correct, expected: item.answer || '', given: String(body.answer || '') });
     }).catch((e) => send(res, 400, { error: e.message }));
   }
+  const lessonQuiz = p.match(/^\/api\/exam-preps\/([^/]+)\/lessons\/([^/]+)\/quiz$/);
+  if (lessonQuiz && req.method === 'POST') {
+    const ctx = requireUser(req, res); if (!ctx) return;
+    return (async () => {
+      const prep = db.prepare('SELECT * FROM preps WHERE id = ? AND user_id = ?').get(lessonQuiz[1], ctx.user.id);
+      if (!prep) return send(res, 404, { error: 'not_found' });
+      const enriched = ensurePrepExtras(prep);
+      const lessons = parseJsonValue(enriched.lessons_json, []);
+      const lesson = lessons.find((item) => item.id === lessonQuiz[2]);
+      if (!lesson) return send(res, 404, { error: 'lesson_not_found' });
+      const quiz = await ensureQuizQuestions(prep, ctx.user.id, lesson, 10);
+      if (!quiz.length) return send(res, 502, { error: 'quiz_generation_failed' });
+      db.prepare('UPDATE preps SET lessons_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(lessons), now(), prep.id);
+      return send(res, 200, { quiz, questions: quiz, durationMinutes: 15, lesson: { id: lesson.id, title: lesson.title } });
+    })().catch((e) => send(res, 400, { error: e.message }));
+  }
+  const quizAttempt = p.match(/^\/api\/exam-preps\/([^/]+)\/lessons\/([^/]+)\/quiz\/attempt$/);
+  if (quizAttempt && req.method === 'POST') {
+    const ctx = requireUser(req, res); if (!ctx) return;
+    return readJson(req).then((body) => {
+      const prep = db.prepare('SELECT * FROM preps WHERE id = ? AND user_id = ?').get(quizAttempt[1], ctx.user.id);
+      if (!prep) return send(res, 404, { error: 'not_found' });
+      const enriched = ensurePrepExtras(prep);
+      const lessons = parseJsonValue(enriched.lessons_json, []);
+      const lesson = lessons.find((item) => item.id === quizAttempt[2]);
+      if (!lesson || !Array.isArray(lesson.quiz) || !lesson.quiz.length) return send(res, 400, { error: 'quiz_empty' });
+      const attempt = recordAttempt(ctx.user.id, prep.id, 'quiz', lesson.id, body.answers, lesson.quiz);
+      if (attempt.total && attempt.score * 100 / attempt.total >= 70 && !lesson.done) {
+        lesson.done = true;
+        db.prepare('UPDATE preps SET lessons_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(lessons), now(), prep.id);
+      }
+      return send(res, 200, { attempt, prep: prepView(db.prepare('SELECT * FROM preps WHERE id = ?').get(prep.id)) });
+    }).catch((e) => send(res, 400, { error: e.message }));
+  }
   const lessonComplete = p.match(/^\/api\/exam-preps\/([^/]+)\/lessons\/([^/]+)\/complete$/);
   if (lessonComplete && req.method === 'POST') {
     const ctx = requireUser(req, res); if (!ctx) return;
@@ -1940,6 +2067,22 @@ function route(req, res) {
       const attempt = recordAttempt(ctx.user.id, prep.id, 'mock', mock.id, body.answers, mock.questions || []);
       return send(res, 200, { attempt, prep: prepView(db.prepare('SELECT * FROM preps WHERE id = ?').get(prep.id)) });
     }).catch((e) => send(res, 400, { error: e.message }));
+  }
+  const mockQuestions = p.match(/^\/api\/exam-preps\/([^/]+)\/mock-exams\/([^/]+)\/questions$/);
+  if (mockQuestions && req.method === 'POST') {
+    const ctx = requireUser(req, res); if (!ctx) return;
+    return (async () => {
+      const prep = db.prepare('SELECT * FROM preps WHERE id = ? AND user_id = ?').get(mockQuestions[1], ctx.user.id);
+      if (!prep) return send(res, 404, { error: 'not_found' });
+      const enriched = ensurePrepExtras(prep);
+      const mocks = parseJsonValue(enriched.mock_json, []);
+      const mock = mocks.find((item) => item.id === mockQuestions[2]);
+      if (!mock) return send(res, 404, { error: 'not_found' });
+      const questions = await ensureMockQuestions(prep, ctx.user.id, mock);
+      if (!questions.length) return send(res, 502, { error: 'questions_generation_failed' });
+      db.prepare('UPDATE preps SET mock_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(mocks), now(), prep.id);
+      return send(res, 200, { mock });
+    })().catch((e) => send(res, 400, { error: e.message }));
   }
   const mockCreate = p.match(/^\/api\/exam-preps\/([^/]+)\/mock-exams$/);
   if (mockCreate && req.method === 'POST') {

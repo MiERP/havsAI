@@ -38,7 +38,10 @@ function parseRoute() {
     if (b === 'join' && c) return { name: 'share', params: { shareId: c, join: true } };
     if (['lessons', 'challenges', 'mock-exams'].includes(b) && !c) return { name: 'exam-list', params: { mode: 'past' } };
     if (b === 'from-catalog') return { name: 'exam-list', params: { mode: 'all' } };
-    if (c === 'lessons' && d) return { name: 'lesson', params: { prepId: b, lessonId: d } };
+    if (c === 'lessons' && d) {
+      if (e === 'quiz') return { name: 'lesson-quiz', params: { prepId: b, lessonId: d } };
+      return { name: 'lesson', params: { prepId: b, lessonId: d } };
+    }
     if (c === 'challenges' && d) return { name: 'challenge', params: { prepId: b, challengeId: d } };
     if (c === 'challenges') return { name: 'challenges', params: { prepId: b } };
     if (c === 'mock-exams' && d) {
@@ -136,10 +139,17 @@ async function loadRouteData() {
       const data = await api('/api/exam-preps');
       state.examPreps = data.preps || [];
     }
-  } else if (['exam-detail', 'lesson', 'challenges', 'challenge', 'mock'].includes(route.name)) {
+  } else if (['exam-detail', 'lesson', 'lesson-quiz', 'challenges', 'challenge', 'mock'].includes(route.name)) {
     if (route.params.prepId) {
       const data = await api(`/api/exam-preps/${route.params.prepId}`);
       state.exam = data.prep;
+      if (route.name === 'lesson-quiz') {
+        const key = `${route.params.prepId}:${route.params.lessonId}`;
+        if (state.quizKey !== key) {
+          state.quizKey = key;
+          state.quizAttempt = null;
+        }
+      }
     }
   } else if (route.name === 'attempt') {
     if (route.params.prepId) {
@@ -198,6 +208,7 @@ function renderFeaturePage(route) {
     case 'exam-list': return renderExamList();
     case 'exam-detail': return renderExamDetail();
     case 'lesson': return renderLesson();
+    case 'lesson-quiz': return renderQuiz();
     case 'challenges': return renderChallenges();
     case 'challenge': return renderChallenge();
     case 'mock': return renderMock();
@@ -326,7 +337,7 @@ function renderExamDetail() {
           ${(prep.challenges || []).map((challenge) => `<div class="item" style="margin-bottom:8px"><h3>${esc(challenge.title)}</h3><p>${rich(challenge.question)}</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/challenges/${challenge.id}">Làm thử thách</button></div>`).join('') || '<p>Chưa có thử thách.</p>'}
         </div>
         <div class="card"><h2>Đề thi thử</h2>
-          ${(prep.mockExams || []).map((mock) => `<div class="item" style="margin-bottom:8px"><h3>${esc(mock.title)}</h3><p>${mock.questions?.length || 0} câu · ${mock.durationMinutes || 30} phút</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/mock-exams/${mock.id}">Làm đề</button></div>`).join('') || '<p>Chưa có đề thi thử.</p>'}
+          ${(prep.mockExams || []).map((mock) => `<div class="item" style="margin-bottom:8px"><h3>${esc(mock.title)}</h3><p>${mock.questionCount || mock.questions?.length || 0} câu · ${mock.durationMinutes || 30} phút${mock.questions?.length ? '' : ' · chưa tạo câu hỏi'}</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/mock-exams/${mock.id}">Làm đề</button></div>`).join('') || '<p>Chưa có đề thi thử.</p>'}
         </div>
       </div>
     </div>
@@ -358,6 +369,11 @@ function renderLesson() {
       <p class="small" id="practice-result-${index}"></p>
       <details><summary>Xem đáp án</summary><div>${rich(item.answer || 'Chưa có đáp án.')}</div></details>
     </div>`).join('')}</div>` : ''}
+    <div class="card" style="margin-bottom:14px"><h2>Bài kiểm tra</h2>
+      ${lesson.quiz?.length
+        ? `<p class="small">${lesson.quiz.length} câu · tối đa 15 phút</p><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/lessons/${lesson.id}/quiz">Làm bài kiểm tra</button>`
+        : `<p class="small">Tạo 10 câu kiểm tra cho bài này, khoảng 20-30 giây.</p><button class="btn secondary" data-action="lesson-quiz" data-value="${prep.id}|${lesson.id}">Tạo bài kiểm tra 10 câu</button>`}
+    </div>
     ${empty ? `<div class="card"><p class="small">Bài học này chưa có nội dung chi tiết. Hãy tạo lại bằng AI.</p></div>` : ''}
     ${!lesson.done ? `<button class="btn" style="margin-top:14px" data-action="lesson-complete" data-value="${prep.id}|${lesson.id}">Đánh dấu đã học</button>` : '<p class="small">Đã hoàn thành bài này.</p>'}
   </div>`;
@@ -394,14 +410,95 @@ function renderMock() {
   const mock = prep?.mockExams?.find((item) => item.id === state.route.params.mockId);
   if (!mock) return `<div class="pad"><p>Không tìm thấy đề thi thử.</p></div>`;
   const result = state.attempt;
+  const total = mock.questionCount || mock.questions?.length || 0;
+  const minutes = mock.durationMinutes || Math.round(total * 1.5);
+  const questions = mock.questions || [];
+  const back = `<button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">${icon('chevron-left')} ${esc(prep.title)}</button>`;
+  if (!questions.length) {
+    return `<div class="pad">${back}
+      <h1>${esc(mock.title)}</h1>
+      <p>${total} câu · tối đa ${minutes} phút</p>
+      <div class="card"><p>Đề chưa có câu hỏi. Bấm để tạo ${total} câu từ kế hoạch và tài liệu (khoảng 30-60 giây).</p>
+        <button class="btn" data-action="mock-build" data-value="${prep.id}|${mock.id}">Tạo đề ${total} câu</button>
+      </div>
+    </div>`;
+  }
   return `<div class="pad">
-    <button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}">${icon('chevron-left')} ${esc(prep.title)}</button>
-    <h1>${esc(mock.title)}</h1><p>${mock.durationMinutes || 30} phút · ${mock.questions?.length || 0} câu</p>
-    ${(mock.questions || []).map((question, index) => `<div class="card" style="margin-bottom:10px"><b>Câu ${index + 1}. ${rich(question.question)}</b><div class="field" style="margin-top:8px"><textarea class="input" rows="3" data-qid="${question.id}">${result ? esc(result.details?.find((d) => d.id === question.id)?.given || '') : ''}</textarea></div>${result ? `<p class="small">${result.details?.find((d) => d.id === question.id)?.correct ? '✓ Đúng' : `✗ Đáp án: ${rich(question.answer)}`}</p>` : ''}</div>`).join('')}
-    <button class="btn" data-action="mock-submit" data-value="${prep.id}|${mock.id}">Nộp đề</button>
-    ${result ? `<div class="card" style="margin-top:14px"><h2>Kết quả: ${result.score}/${result.total}</h2></div>` : ''}
+    ${back}
+    <div class="row" style="align-items:center">
+      <h1 style="margin:0">${esc(mock.title)}</h1>
+      <div class="grow"></div>
+      ${result ? '' : `<span class="badge" id="exam-clock" data-deadline="${examDeadline(`mock:${prep.id}:${mock.id}`, minutes)}">${minutes}:00</span>`}
+    </div>
+    <p>${questions.length} câu · tối đa ${minutes} phút</p>
+    ${questions.map((question, index) => `<div class="card" style="margin-bottom:10px"><b>Câu ${index + 1}. ${rich(question.question)}</b><div class="field" style="margin-top:8px"><textarea class="input" rows="2" data-qid="${question.id}">${result ? esc(result.details?.find((d) => d.id === question.id)?.given || '') : ''}</textarea></div>${result ? `<p class="small">${result.details?.find((d) => d.id === question.id)?.correct ? 'Đúng' : `Sai · Đáp án: ${rich(question.answer)}`}</p>` : ''}</div>`).join('')}
+    ${result ? `<div class="card" style="margin-top:14px"><h2>Kết quả: ${result.score}/${result.total}</h2></div>`
+      : `<button class="btn" data-action="mock-submit" data-value="${prep.id}|${mock.id}">Nộp đề</button>`}
   </div>`;
 }
+
+function examDeadline(key, minutes) {
+  const storageKey = `havs-exam-${key}`;
+  try {
+    const saved = Number(localStorage.getItem(storageKey));
+    const ttl = Math.max(1, minutes) * 60000;
+    if (saved && saved > Date.now() - ttl) return saved;
+    const deadline = Date.now() + ttl;
+    localStorage.setItem(storageKey, String(deadline));
+    return deadline;
+  } catch {
+    return Date.now() + Math.max(1, minutes) * 60000;
+  }
+}
+
+function clearExamDeadline(key) {
+  try { localStorage.removeItem(`havs-exam-${key}`); } catch {}
+}
+
+function renderQuiz() {
+  const prep = state.exam;
+  const lesson = prep?.lessons?.find((item) => item.id === state.route.params.lessonId);
+  if (!lesson) return `<div class="pad"><p>Không tìm thấy bài học.</p></div>`;
+  const back = `<button class="btn ghost" data-action="nav" data-value="/exam-preps/${prep.id}/lessons/${lesson.id}">${icon('chevron-left')} ${esc(lesson.title)}</button>`;
+  const quiz = Array.isArray(lesson.quiz) ? lesson.quiz : [];
+  const result = state.quizAttempt;
+  if (!quiz.length) {
+    return `<div class="pad">${back}
+      <h1>Bài kiểm tra</h1>
+      <div class="card"><p>Bài này chưa có câu hỏi. Tạo 10 câu kiểm tra từ nội dung bài học (khoảng 20-30 giây).</p>
+        <button class="btn" data-action="lesson-quiz" data-value="${prep.id}|${lesson.id}">Tạo bài kiểm tra 10 câu</button>
+      </div>
+    </div>`;
+  }
+  return `<div class="pad">
+    ${back}
+    <div class="row" style="align-items:center">
+      <h1 style="margin:0">Kiểm tra: ${esc(lesson.title)}</h1>
+      <div class="grow"></div>
+      ${result ? '' : `<span class="badge" id="exam-clock" data-deadline="${examDeadline(`quiz:${prep.id}:${lesson.id}`, 15)}">15:00</span>`}
+    </div>
+    <p>${quiz.length} câu · tối đa 15 phút</p>
+    ${quiz.map((item, index) => `<div class="card" style="margin-bottom:10px"><b>Câu ${index + 1}. ${rich(item.question)}</b><div class="field" style="margin-top:8px"><textarea class="input" rows="2" data-qid="${item.id}">${result ? esc(result.details?.find((d) => d.id === item.id)?.given || '') : ''}</textarea></div>${result ? `<p class="small">${result.details?.find((d) => d.id === item.id)?.correct ? 'Đúng' : `Sai · Đáp án: ${rich(item.answer)}`}</p>` : ''}</div>`).join('')}
+    ${result ? `<div class="card"><h2>Kết quả: ${result.score}/${result.total}</h2><button class="btn secondary" data-action="nav" data-value="/exam-preps/${prep.id}/lessons/${lesson.id}">Về bài học</button></div>`
+      : `<button class="btn" data-action="quiz-submit" data-value="${prep.id}|${lesson.id}">Nộp bài</button>`}
+  </div>`;
+}
+
+setInterval(() => {
+  const el = document.getElementById('exam-clock');
+  if (!el) return;
+  const deadline = Number(el.dataset.deadline || 0);
+  if (!deadline) return;
+  const left = Math.max(0, deadline - Date.now());
+  const minute = Math.floor(left / 60000);
+  const second = Math.floor((left % 60000) / 1000);
+  el.textContent = `${minute}:${String(second).padStart(2, '0')}`;
+  if (left === 0 && el.dataset.fired !== '1') {
+    el.dataset.fired = '1';
+    const submit = document.querySelector('[data-action="quiz-submit"], [data-action="mock-submit"]');
+    if (submit) submit.click();
+  }
+}, 1000);
 
 function renderAttempt() {
   const attempt = state.attempt;
@@ -647,6 +744,51 @@ document.addEventListener('click', async (event) => {
     }
     return;
   }
+  if (action === 'lesson-quiz') {
+    const [prepId, lessonId] = value.split('|');
+    try {
+      toast('Đang tạo 10 câu kiểm tra…');
+      await api(`/api/exam-preps/${prepId}/lessons/${lessonId}/quiz`, { method: 'POST' });
+      await loadRouteData();
+      navigate(`/exam-preps/${prepId}/lessons/${lessonId}/quiz`);
+      toast('Đã tạo bài kiểm tra 10 câu');
+    } catch (error) {
+      toast(error.message);
+    }
+    return;
+  }
+  if (action === 'quiz-submit') {
+    const [prepId, lessonId] = value.split('|');
+    const answers = {};
+    document.querySelectorAll('[data-qid]').forEach((input) => { answers[input.dataset.qid] = input.value; });
+    try {
+      const data = await api(`/api/exam-preps/${prepId}/lessons/${lessonId}/quiz/attempt`, {
+        method: 'POST',
+        body: JSON.stringify({ answers })
+      });
+      state.quizAttempt = data.attempt;
+      clearExamDeadline(`quiz:${prepId}:${lessonId}`);
+      await loadRouteData();
+      render();
+      toast(`Kết quả: ${data.attempt.score}/${data.attempt.total}`);
+    } catch (error) {
+      toast(error.message);
+    }
+    return;
+  }
+  if (action === 'mock-build') {
+    const [prepId, mockId] = value.split('|');
+    try {
+      toast('Đang tạo câu hỏi cho đề…');
+      await api(`/api/exam-preps/${prepId}/mock-exams/${mockId}/questions`, { method: 'POST' });
+      await loadRouteData();
+      render();
+      toast('Đã tạo đề thi thử');
+    } catch (error) {
+      toast(error.message);
+    }
+    return;
+  }
   if (action === 'practice-check') {
     const [prepId, lessonId, index] = value.split('|');
     const input = document.getElementById(`practice-${index}`);
@@ -709,6 +851,7 @@ document.addEventListener('click', async (event) => {
     try {
       const data = await api(`/api/exam-preps/${prepId}/mock-exams/${mockId}/attempts`, { method: 'POST', body: JSON.stringify({ answers }) });
       state.attempt = data.attempt;
+      clearExamDeadline(`mock:${prepId}:${mockId}`);
       render();
       toast(`Kết quả: ${data.attempt.score}/${data.attempt.total}`);
     } catch (error) { toast(error.message); }
