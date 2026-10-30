@@ -2,4 +2,5 @@
 <resources>
     <color name="havs_green">#00A10D</color>
     <color name="havs_orange">#EA580C</color>
+    <color name="launcher_bg">#0F1A0B</color>
 </resources>

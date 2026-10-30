@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#081005"/>
-  <circle cx="256" cy="256" r="196" fill="#0f1a0b" stroke="#233a1c" stroke-width="8"/>
-  <text x="256" y="286" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-weight="800" font-size="96" letter-spacing="-3">
-    <tspan fill="#00a10d">havs</tspan><tspan fill="#ea580c">AI</tspan>
-  </text>
-  <rect x="166" y="328" width="180" height="12" rx="6" fill="#ea580c"/>
+  <rect width="512" height="512" fill="#0F1A0B"/>
+  <g transform="translate(256 256) scale(0.78) translate(-256 -256)">
+    <path d="M181 150 V362" fill="none" stroke="#EA580C" stroke-width="44" stroke-linecap="round"/>
+    <path d="M181 258 C181 206 219 184 257 184 C295 184 291 220 291 250 V362" fill="none" stroke="#EA580C" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="327" cy="170" r="26" fill="#00A10D"/>
+  </g>
 </svg>
