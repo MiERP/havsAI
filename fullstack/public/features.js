@@ -109,11 +109,6 @@ async function loadRouteData() {
     const data = await api('/api/settings');
     state.profile = data.profile;
     state.settings = data.settings || {};
-    try {
-      const cc = await api('/api/ai/commandcode');
-      state.commandcodeAccounts = cc.accounts || [];
-      state.aiActive = cc.active || {};
-    } catch {}
     await refreshDashboard();
   } else if (route.name === 'exam-list') {
     state.examMode = route.params.mode || 'all';
@@ -525,34 +520,9 @@ function renderHavsSettings() {
   const deviceLabel = plat?.deviceLabel ? plat.deviceLabel() : 'Web Browser';
   const pushLabel = plat?.pushGranted ? 'Đã bật' : 'Chưa cấp quyền';
   const canInstall = plat ? (!plat.isNativeAndroid && !plat.isStandalone) : true;
-  const ccAccounts = state.commandcodeAccounts || [];
-  const aiActive = state.aiActive || {};
   return `<div class="pad">
     <h1>Cài đặt</h1>
     <div class="card" style="margin-bottom:14px"><div class="row"><div class="avatar">${esc((p.name || 'H')[0].toUpperCase())}</div><div class="grow"><b>${esc(p.name || 'Học sinh')}</b><p style="margin:2px 0 0">${esc(state.user?.email || '')}</p></div><span class="badge">${esc(deviceLabel)}</span></div></div>
-    <div class="card" style="margin-bottom:14px">
-      <div class="row" style="margin-bottom:6px"><h2 style="margin:0">Tài khoản AI (Command Code)</h2><div class="grow"></div><span class="badge">${esc(aiActive.provider || 'commandcode')}</span></div>
-      <p class="small">Chat: <b>${esc(aiActive.model || 'deepseek/deepseek-v4.1-flash')}</b> · Vision: <b>${esc(aiActive.visionModel || 'deepseek/deepseek-v4-flash-vision-exp')}</b></p>
-      ${ccAccounts.length ? `<div class="list" style="margin-bottom:14px">
-        ${ccAccounts.map((acc) => `<div class="item" style="display:flex;align-items:center;gap:10px;padding:10px 12px">
-          <div class="grow">
-            <b>${esc(acc.name)}</b> ${acc.isDefault ? '<span class="badge">Đang dùng</span>' : ''}
-            <p class="small" style="margin:2px 0 0">Key: <code>${esc(acc.keyHint)}</code> · Model: ${esc(acc.model)}</p>
-          </div>
-          ${!acc.isDefault ? `<button class="btn secondary small" style="width:auto;padding:8px 12px" data-action="cc-activate" data-value="${esc(acc.id)}">Dùng tài khoản này</button>` : `<button class="btn ghost small" style="width:auto;padding:8px 12px" data-action="cc-activate" data-value="${esc(acc.id)}">Kiểm tra</button>`}
-          ${ccAccounts.length > 1 ? `<button class="btn danger small" style="width:auto;padding:8px 10px" data-action="cc-delete" data-value="${esc(acc.id)}">Xóa</button>` : ''}
-        </div>`).join('')}
-      </div>` : ''}
-      <div class="field"><label>Tên gợi nhớ tài khoản Command Code mới (tùy chọn)</label><input id="cc-account-name" class="input" placeholder="VD: Command Code #2 (tự động nhận nếu dán auth.json)" /></div>
-      <div class="field"><label>Dán Command Code API Key (<code>user_...</code>) hoặc nội dung file <code>~/.commandcode/auth.json</code></label><textarea id="cc-account-key" class="input" rows="3" style="font-family:monospace" placeholder='user_... hoặc {"apiKey":"user_...","userName":"..."}'></textarea></div>
-      <div class="field"><label>Chế độ lưu</label>
-        <select id="cc-account-mode" class="input">
-          <option value="add">Thêm tài khoản mới & đặt làm mặc định (giữ tài khoản cũ để chuyển đổi)</option>
-          <option value="replace">Cập nhật ghi đè tài khoản Command Code hiện tại</option>
-        </select>
-      </div>
-      <button class="btn" data-action="cc-save">Lưu & Kích hoạt tài khoản Command Code</button>
-    </div>
     <div class="desktop-grid">
       <div class="card" style="margin-bottom:14px"><h2>Hồ sơ</h2>
         <div class="field"><label>Tên hiển thị</label><input id="set-name" class="input" value="${esc(p.name || '')}" /></div>
@@ -781,50 +751,6 @@ document.addEventListener('click', async (event) => {
     try {
       await api(`/api/calendar/${value}`, { method: 'DELETE' });
       await loadRouteData(); render();
-    } catch (error) { toast(error.message); }
-    return;
-  }
-  if (action === 'cc-save') {
-    const name = document.getElementById('cc-account-name')?.value.trim() || '';
-    const apiKey = document.getElementById('cc-account-key')?.value.trim() || '';
-    const mode = document.getElementById('cc-account-mode')?.value || 'add';
-    if (!apiKey) { toast('Vui lòng dán API key hoặc nội dung auth.json của Command Code'); return; }
-    el.disabled = true;
-    try {
-      const res = await api('/api/ai/commandcode', { method: 'POST', body: JSON.stringify({ name, apiKey, mode }) });
-      await loadRouteData();
-      render();
-      if (res.testResult?.ok) {
-        toast(`Đã kích hoạt tài khoản Command Code thành công (${res.testResult.latencyMs} ms)`);
-      } else {
-        toast(`Đã lưu nhưng kiểm tra kết nối báo: ${res.testResult?.error || 'chưa kết nối được'}`);
-      }
-    } catch (error) {
-      toast(error.message === 'invalid_auth_json' ? 'Nội dung JSON auth.json không hợp lệ' : error.message);
-    } finally {
-      el.disabled = false;
-    }
-    return;
-  }
-  if (action === 'cc-activate') {
-    try {
-      const res = await api('/api/ai/commandcode', { method: 'POST', body: JSON.stringify({ action: 'activate', id: value }) });
-      await loadRouteData();
-      render();
-      if (res.testResult?.ok) {
-        toast(`Đã chuyển sang tài khoản Command Code (${res.testResult.latencyMs} ms)`);
-      } else {
-        toast(`Đã chuyển nhưng kết nối báo: ${res.testResult?.error || 'lỗi'}`);
-      }
-    } catch (error) { toast(error.message); }
-    return;
-  }
-  if (action === 'cc-delete') {
-    try {
-      await api('/api/ai/commandcode', { method: 'POST', body: JSON.stringify({ action: 'delete', id: value }) });
-      await loadRouteData();
-      render();
-      toast('Đã xóa tài khoản Command Code');
     } catch (error) { toast(error.message); }
     return;
   }

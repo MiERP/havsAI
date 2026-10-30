@@ -50,6 +50,20 @@ test('exam prep text goes through the KaTeX pipeline', () => {
   assert.doesNotMatch(features, /esc\(example\.problem\)/);
 });
 
+test('AI account provisioning lives only in the admin panel', () => {
+  const features = read(publicDir, 'features.js');
+  assert.doesNotMatch(features, /Tài khoản AI \(Command Code\)/);
+  assert.doesNotMatch(features, /api\/ai\/commandcode/);
+  assert.doesNotMatch(features, /data-action="cc-/);
+
+  const server = read(root, 'fullstack', 'server.js');
+  assert.doesNotMatch(server, /'\/api\/ai\/commandcode'/);
+
+  const adminBackend = read(root, 'fullstack', 'admin.js');
+  assert.match(adminBackend, /\/api\/admin\/ai\/commandcode/);
+  assert.match(read(publicDir, 'admin.js'), /ai-commandcode-save/);
+});
+
 test('the read-aloud toggle owns playback and gates speaking', () => {
   const app = read(publicDir, 'app.js');
   assert.match(app, /function speak\(text, forcedVoiceId\) \{\s*if \(!forcedVoiceId && !state\.voiceOn\) return;/);
