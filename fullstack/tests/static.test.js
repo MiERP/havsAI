@@ -50,6 +50,14 @@ test('exam prep text goes through the KaTeX pipeline', () => {
   assert.doesNotMatch(features, /esc\(example\.problem\)/);
 });
 
+test('the read-aloud toggle owns playback and gates speaking', () => {
+  const app = read(publicDir, 'app.js');
+  assert.match(app, /function speak\(text, forcedVoiceId\) \{\s*if \(!forcedVoiceId && !state\.voiceOn\) return;/);
+  assert.match(app, /if \(state\.voiceOn\) speak\(full\);/);
+  assert.match(app, /action === 'toggle-voice'[\s\S]{0,500}stopSpeech\(\)/);
+  assert.match(app, /function syncVoiceFromProfile\(\)/);
+});
+
 test('truncated chat answers are signalled and partial math is salvaged', () => {
   const server = read(root, 'fullstack', 'server.js');
   assert.match(server, /CHAT_MAX_TOKENS/);

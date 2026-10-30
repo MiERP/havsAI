@@ -849,6 +849,7 @@ document.addEventListener('click', async (event) => {
       const data = await api('/api/settings', { method: 'PATCH', body: JSON.stringify(body) });
       state.profile = data.profile;
       state.settings = data.settings || {};
+      if (typeof syncVoiceFromProfile === 'function') syncVoiceFromProfile();
       toast('Đã lưu cài đặt');
       render();
     } catch (error) { toast(error.message); }

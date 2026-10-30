@@ -891,6 +891,7 @@ async function boot() {
     }
     state.user = session.user;
     state.profile = session.profile;
+    if (session.profile?.voice === 'none') state.voiceOn = false;
     havsPlatform.identify(state.user, state.profile);
     havsPlatform.setTheme(state.profile?.theme || 'dark');
     if (!session.profile?.onboardingDone) {
@@ -1051,7 +1052,7 @@ async function sendMessage(text) {
     await refreshDashboard();
     render();
     scrollChat();
-    if (state.voiceOn && state.profile?.voice !== 'none') speak(full);
+    if (state.voiceOn) speak(full);
   } catch (error) {
     contentEl.textContent = `Lỗi: ${error.message}`;
     toast(error.message);
@@ -1088,6 +1089,15 @@ if ('speechSynthesis' in window) {
     window.speechSynthesis.addEventListener('voiceschanged', refreshVoices);
   } catch {
     window.speechSynthesis.onvoiceschanged = refreshVoices;
+  }
+}
+
+function syncVoiceFromProfile() {
+  if (!state.profile) return;
+  if (state.profile.voice === 'none') {
+    state.voiceOn = false;
+    try { localStorage.setItem('havs-voice', 'off'); } catch {}
+    stopSpeech();
   }
 }
 
@@ -1194,10 +1204,14 @@ function speakNow(text, forcedVoiceId, epoch) {
 }
 
 function speak(text, forcedVoiceId) {
+  if (!forcedVoiceId && !state.voiceOn) return;
   const clean = speechText(text);
   if (!clean) return;
-  const voiceId = forcedVoiceId || state.profile?.voice || state.onboarding?.voice || 'neil';
-  if (voiceId === 'none') return;
+  let voiceId = forcedVoiceId || state.profile?.voice || state.onboarding?.voice || 'neil';
+  if (voiceId === 'none') {
+    if (forcedVoiceId) return;
+    voiceId = 'neil';
+  }
 
   const engine = window.HavsSpeech;
   const segments = engine && typeof engine.splitForSpeech === 'function'
@@ -1534,8 +1548,23 @@ document.addEventListener('click', async (event) => {
   } else if (action === 'toggle-voice') {
     state.voiceOn = !state.voiceOn;
     try { localStorage.setItem('havs-voice', state.voiceOn ? 'on' : 'off'); } catch {}
-    render();
-    if (state.voiceOn) speak('Đã bật giọng nói.');
+    if (!state.voiceOn) {
+      stopSpeech();
+      toast('Đã tắt đọc câu trả lời');
+    } else {
+      if (state.profile && (!state.profile.voice || state.profile.voice === 'none')) {
+        state.profile.voice = 'neil';
+        api('/api/profile', { method: 'PATCH', body: JSON.stringify({ voice: 'neil' }) }).catch(() => {});
+      }
+      toast('Đã bật đọc câu trả lời');
+      const lastAnswer = [...state.messages].reverse().find((message) => message.role === 'assistant' && message.content);
+      speak(lastAnswer ? lastAnswer.content : 'Đã bật đọc câu trả lời.');
+    }
+    const voiceButton = document.querySelector('[data-action="toggle-voice"]');
+    if (voiceButton) {
+      voiceButton.textContent = state.voiceOn ? '🔊' : '🔇';
+      voiceButton.classList.toggle('send', state.voiceOn);
+    }
   } else if (action === 'voice-input') {
     startVoiceInput();
   } else if (action === 'open-exam-wizard') {
@@ -1593,7 +1622,10 @@ document.addEventListener('click', async (event) => {
     const voice = document.getElementById('set-voice')?.value;
     try {
       const data = await api('/api/profile', { method: 'PATCH', body: JSON.stringify({ name, voice }) });
-      state.profile = data.profile; render(); toast('Đã lưu');
+      state.profile = data.profile;
+      syncVoiceFromProfile();
+      render();
+      toast('Đã lưu');
     } catch (error) { toast(error.message); }
   } else if (action === 'logout') {
     await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
