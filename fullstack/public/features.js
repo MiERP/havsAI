@@ -1,4 +1,4 @@
-function fmtDate(value) {
+﻿function fmtDate(value) {
   if (!value) return 'chưa có ngày';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString('vi-VN');
@@ -256,13 +256,13 @@ function renderExamList() {
     <div class="row exam-title-row">
       <h1>Kỳ thi</h1><div class="grow"></div>
       <button class="icon-btn" data-action="nav" data-value="/exam-preps/search" title="Tìm kiếm">🔍</button>
-      <button class="icon-btn send" data-action="open-exam-wizard" title="Tạo bài thi mới">＋</button>
+      <button class="icon-btn send" data-action="open-exam-wizard" title="Tạo bài thi mới">${icon('plus')}</button>
     </div>
     <div class="hero-card">
       <div class="hero-icon">🎯</div>
       <h2>Chuẩn bị cho kỳ thi tới của bạn</h2>
       <p>Thêm ghi chép của bạn hoặc chọn một kỳ thi chính thức, havsAI sẽ lập kế hoạch học tập đến ngày thi.</p>
-      <button class="btn" data-action="open-exam-wizard">＋ Tạo bài thi mới</button>
+      <button class="btn" data-action="open-exam-wizard">${icon('plus')} Tạo bài thi mới</button>
       <button class="btn ghost exam-how" data-action="exam-how">Cách thức hoạt động ⓘ</button>
     </div>
     <p class="section-label">Bắt đầu từ</p>
@@ -293,7 +293,7 @@ function renderExamDetail() {
     <button class="btn ghost" data-action="nav" data-value="/exam-preps">← Ôn thi</button>
     <h1>${esc(prep.title)}</h1><p>${esc(subjectName(prep.subject))} · ${fmtDate(prep.examDate)} · ${esc(prep.status)}</p>
     ${(prep.materials || []).length
-      ? `<p class="small">📄 Tài liệu: ${(prep.materials || []).map((item) => `${esc(item.filename)}${item.pages ? ` (${item.pages} trang)` : ''}`).join(' · ')}</p>`
+      ? `<p class="small">${icon('doc')} Tài liệu: ${(prep.materials || []).map((item) => `${esc(item.filename)}${item.pages ? ` (${item.pages} trang)` : ''}`).join(' · ')}</p>`
       : '<p class="small">Chưa gắn tài liệu nào cho kỳ ôn này.</p>'}
     <div class="row" style="margin:8px 0;flex-wrap:wrap;gap:8px">
       <button class="btn ghost" data-action="prep-material-pick">Thêm tài liệu</button>
@@ -841,9 +841,9 @@ function renderExamWizard() {
       <div class="wizard-hit" data-action="close-wizard"></div>
       <div class="modal wizard-sheet">
         <div class="wizard-sheet-head">
-          <button class="icon-btn" data-action="close-wizard">✕</button>
+          <button class="icon-btn" data-action="close-wizard">${icon('close')}</button>
           <b>Bài mới</b>
-          <span class="icon-btn invisible">✕</span>
+          <span class="icon-btn invisible">${icon('close')}</span>
         </div>
         <div class="source-list">
           ${EXAM_SOURCES.map(([id, icon, title, subtitle]) => `<button class="source-option ${wizard.source === id ? 'active' : ''}" data-action="wizard-source" data-value="${id}">
@@ -861,7 +861,7 @@ function renderExamWizard() {
   const bar = `<div class="wizard-bar">
     <button class="icon-btn" data-action="${wizard.step === 1 ? 'close-wizard' : 'wizard-back'}">←</button>
     <div class="wizard-progress"><span style="width:${progress}%"></span></div>
-    <button class="icon-btn" data-action="close-wizard">✕</button>
+    <button class="icon-btn" data-action="close-wizard">${icon('close')}</button>
   </div>`;
 
   if (wizard.step === 1) {
@@ -869,11 +869,11 @@ function renderExamWizard() {
       ${bar}
       <h1 class="center-text wizard-title">Bạn thi môn gì?</h1>
       <div class="field"><input id="wizard-subject-search" class="input" placeholder="Nhập môn học của bạn" autocomplete="off" /></div>
-      <div class="center-text" style="margin-bottom:18px"><button class="btn secondary" style="width:auto" data-action="wizard-add-subject">＋ Thêm môn học của bạn</button></div>
+      <div class="center-text" style="margin-bottom:18px"><button class="btn secondary" style="width:auto" data-action="wizard-add-subject">${icon('plus')} Thêm môn học của bạn</button></div>
       <p class="section-label">MÔN HỌC TỔNG QUÁT</p>
       <div class="subject-grid">
         ${SUBJECTS.map(([id, label]) => `<button class="subject-tile ${wizard.subject === id ? 'active' : ''}" data-action="wizard-subject" data-value="${id}" data-subject-tile="${esc(label)}">
-          <span>${SUBJECT_META[id] || '📘'}</span><b>${esc(label)}</b>
+          <span class="subject-tile-ico">${subjectIcon(id)}</span><b>${esc(label)}</b>
         </button>`).join('')}
       </div>
       <button class="btn wizard-cta" data-action="wizard-next">Tiếp tục</button>
@@ -902,7 +902,7 @@ function renderExamWizard() {
       </div>
       <div class="or-sep"><span>HOẶC</span></div>
       <input id="wizard-date-custom" type="date" class="input hidden" value="${wizard.examDate || ''}" />
-      <div class="center-text"><button class="btn secondary" style="width:auto" data-action="wizard-pick-date">📅 Chọn ngày</button></div>
+      <div class="center-text"><button class="btn secondary" style="width:auto" data-action="wizard-pick-date">${icon('calendar')} Chọn ngày</button></div>
       ${wizard.examDate ? `<p class="center-text small" style="margin-top:14px">Đã chọn: ${esc(examDatePretty(wizard.examDate))}</p>
         <button class="btn" data-action="wizard-next">Tiếp tục</button>` : ''}
     </div>`;
@@ -926,7 +926,7 @@ function renderExamWizard() {
     <input id="wizard-camera" type="file" accept="image/*" capture="environment" class="hidden" />
     <input id="wizard-gallery" type="file" accept="image/*" class="hidden" />
     <input id="wizard-file" type="file" accept="image/*,application/pdf" class="hidden" />
-    ${wizard.uploadName ? `<div class="item attach-preview"><span>📄</span><div class="grow"><b>${esc(wizard.uploadName)}</b><small>${wizard.uploadPages ? `${wizard.uploadPages} trang` : 'Đã tải lên'}</small></div><button class="btn ghost" data-action="wizard-remove-upload">Bỏ</button></div>` : ''}
+    ${wizard.uploadName ? `<div class="item attach-preview"><span>${icon('doc')}</span><div class="grow"><b>${esc(wizard.uploadName)}</b><small>${wizard.uploadPages ? `${wizard.uploadPages} trang` : 'Đã tải lên'}</small></div><button class="btn ghost" data-action="wizard-remove-upload">Bỏ</button></div>` : ''}
     <div class="info-box"><span>ⓘ</span><p><b>Vì sao tài liệu của bạn quan trọng</b><br>Bạn càng thêm nhiều tài liệu, havsAI càng hiểu rõ hơn. havsAI xác định các chủ đề, lập kế hoạch và tạo bài luyện sát với bài kiểm tra của bạn.</p></div>
     ${wizard.uploading ? '<p class="small">Đang tải tài liệu lên…</p>' : ''}
     ${wizard.creating ? '<p class="small">Đang tạo kế hoạch và bài học…</p>' : ''}
@@ -1014,7 +1014,7 @@ function renderProfilePage() {
     <div class="card plan-card">
       <div class="row">
         <div class="grow"><b>${profile.plan === 'free' || !profile.plan ? 'Cơ bản' : esc(profile.plan)}</b><p style="margin:0">Gói miễn phí</p></div>
-        <button class="btn plan-cta" data-action="upgrade">Học nhanh hơn ✨</button>
+        <button class="btn plan-cta" data-action="upgrade">Học nhanh hơn</button>
       </div>
     </div>
     <button class="card invite-card" data-action="invite">

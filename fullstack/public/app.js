@@ -5,9 +5,9 @@ const SUBJECTS = [
   ['economics', 'Kinh tế']
 ];
 const SUBJECT_META = {
-  math: '🧮', physics: '⚛️', chemistry: '⚗️', biology: '🧬', english: '🇬🇧',
-  german: '🇩🇪', spanish: '🇪🇸', french: '🇫🇷', literature: '📖', history: '🏛️',
-  geography: '🌍', cs: '💻', economics: '📈'
+  math: 'calculator', physics: 'atom', chemistry: 'flask', biology: 'dna', english: 'language',
+  german: 'language', spanish: 'language', french: 'language', literature: 'book', history: 'clock',
+  geography: 'globe', cs: 'code', economics: 'chart'
 };
 const VOICE_LABELS = { neil: 'Neil', aria: 'Aria', minh: 'Minh', lena: 'Lena' };
 const PROMPTS = {
@@ -24,6 +24,7 @@ const state = {
   route: { name: 'chat', params: {} }, routeError: '',
   chats: [], chatId: null, messages: [], subject: 'math',
   streaming: false, imageUrl: null, uploadId: null, uploadName: '', uploadPages: 0, uploadMime: '', voiceOn: true,
+  navCollapsed: false, historyHidden: false,
   listening: false, draft: '', examWizard: null,
   voices: [], preps: [], dashboard: null,
   realtime: null, live: false, prepPlan: null,
@@ -269,6 +270,14 @@ function subjectName(id) {
   return (SUBJECTS.find(([key]) => key === id) || [id, id])[1];
 }
 
+function icon(name, extra = '') {
+  return `<svg class="ico${extra ? ` ${extra}` : ''}" aria-hidden="true" focusable="false"><use href="#i-${name}"></use></svg>`;
+}
+
+function subjectIcon(id, extra = '') {
+  return icon(SUBJECT_META[id] || 'book', extra);
+}
+
 function render() {
   if (state.view === 'boot') app.innerHTML = renderBoot();
   else if (state.view === 'login') app.innerHTML = renderLogin();
@@ -352,38 +361,40 @@ function renderOnboarding() {
 
 function renderSideNav(activeNav, p) {
   const navItems = [
-    ['chat', 'Trò chuyện', '💬', '/'],
-    ['prep', 'Ôn thi', '📚', '/exam-preps'],
-    ['stats', 'Tiến độ', '📈', '/dashboard'],
-    ['lab', 'AI Lab', '🧪', '/lab'],
-    ['calendar', 'Lịch học', '📅', '/calendar'],
-    ['showcase', 'Khám phá', '✨', '/showcase'],
-    ['settings', 'Cài đặt', '⚙️', '/settings']
+    ['chat', 'Trò chuyện', 'chat', '/'],
+    ['prep', 'Ôn thi', 'book', '/exam-preps'],
+    ['stats', 'Tiến độ', 'chart', '/dashboard'],
+    ['lab', 'AI Lab', 'flask', '/lab'],
+    ['calendar', 'Lịch học', 'calendar', '/calendar'],
+    ['showcase', 'Khám phá', 'compass', '/showcase'],
+    ['settings', 'Cài đặt', 'settings', '/settings']
   ];
   const roleLabel = p.role === 'teacher' ? 'Giáo viên' : p.role === 'parent' ? 'Phụ huynh' : 'Học sinh';
   const isLight = (p.theme || 'dark') === 'light';
-  return `<aside class="side-nav" aria-label="Điều hướng chính">
+  const collapsed = state.navCollapsed;
+  return `<aside class="side-nav ${collapsed ? 'collapsed' : ''}" aria-label="Điều hướng chính">
     <div class="side-brand">
       <div class="logo" data-action="nav" data-value="/" style="cursor:pointer">havs<span>AI</span></div>
-      <span class="badge">BETA</span>
-      <span class="live ${state.live ? 'on' : ''}">${state.live ? '● live' : '○ offline'}</span>
+      <span class="badge side-brand-badge">BETA</span>
+      <button class="icon-btn nav-collapse" data-action="toggle-nav" title="${collapsed ? 'Mở rộng menu' : 'Thu gọn menu'}" aria-label="${collapsed ? 'Mở rộng menu' : 'Thu gọn menu'}">${icon(collapsed ? 'chevron-right' : 'chevron-left')}</button>
     </div>
-    <button class="btn side-new-chat" data-action="new-chat" title="Cuộc trò chuyện mới (Ctrl+K)">＋ Cuộc trò chuyện mới</button>
+    <span class="live side-live ${state.live ? 'on' : ''}">${state.live ? '● live' : '○ offline'}</span>
+    <button class="btn side-new-chat" data-action="new-chat" title="Cuộc trò chuyện mới (Ctrl+K)">${icon('plus')}<span class="label">Cuộc trò chuyện mới</span></button>
     <nav class="side-links">
-      ${navItems.map(([id, label, icon, href]) =>
-        `<button class="side-link ${activeNav === id ? 'active' : ''}" data-action="nav" data-value="${href}">
-          <span class="ico">${icon}</span><span>${label}</span>
+      ${navItems.map(([id, label, ico, href]) =>
+        `<button class="side-link ${activeNav === id ? 'active' : ''}" data-action="nav" data-value="${href}" title="${label}">
+          ${icon(ico)}<span class="label">${label}</span>
         </button>`).join('')}
     </nav>
     <div class="side-footer">
-      ${havsPlatform.runtime === 'web' ? `<button class="btn secondary side-install-btn" data-action="install-app">📲 Cài đặt ứng dụng</button>` : ''}
+      ${havsPlatform.runtime === 'web' ? `<button class="btn secondary side-install-btn" data-action="install-app" title="Cài đặt ứng dụng">${icon('download')}<span class="label">Cài đặt ứng dụng</span></button>` : ''}
       <div class="side-profile">
         <div class="avatar" data-action="go-profile" style="cursor:pointer">${esc((p.name || 'H')[0].toUpperCase())}</div>
         <div class="grow side-profile-meta" data-action="go-profile" style="cursor:pointer">
-          <b>${esc(p.name || 'Học sinh')}</b>
-          <span class="small muted">${roleLabel} · ${esc(havsPlatform.runtimeLabel())}</span>
+          <b class="label">${esc(p.name || 'Học sinh')}</b>
+          <span class="small muted label">${roleLabel} · ${esc(havsPlatform.runtimeLabel())}</span>
         </div>
-        <button class="icon-btn" data-action="quick-theme" title="Đổi giao diện Sáng/Tối">${isLight ? '🌙' : '☀️'}</button>
+        <button class="icon-btn" data-action="quick-theme" title="Đổi giao diện Sáng/Tối">${icon(isLight ? 'moon' : 'sun')}</button>
       </div>
     </div>
   </aside>`;
@@ -396,8 +407,8 @@ function renderChatSidebar() {
     <div class="chat-sidebar-head">
       <b>Lịch sử hội thoại</b>
       <div class="row">
-        <button class="icon-btn" data-action="new-chat" title="Cuộc trò chuyện mới">＋</button>
-        <button class="icon-btn mobile-only" data-action="close-chat-drawer" title="Đóng">✕</button>
+        <button class="icon-btn" data-action="new-chat" title="Cuộc trò chuyện mới">${icon('plus')}</button>
+        <button class="icon-btn mobile-only" data-action="close-chat-drawer" title="Đóng">${icon('close')}</button>
       </div>
     </div>
     <div class="chat-sidebar-search">
@@ -408,15 +419,15 @@ function renderChatSidebar() {
         const active = state.chatId === chat.id;
         return `<div class="chat-history-item ${active ? 'active' : ''}">
           <button class="chat-history-open" data-action="open-chat" data-value="${esc(chat.id)}">
-            <span class="chat-history-ico">${SUBJECT_META[chat.subject] || '💬'}</span>
+            <span class="chat-history-ico">${subjectIcon(chat.subject)}</span>
             <span class="chat-history-text">
               <b>${esc(chat.title || 'Cuộc trò chuyện')}</b>
               <small>${esc(subjectName(chat.subject || 'math'))}</small>
             </span>
           </button>
           <div class="chat-history-actions">
-            <button class="chat-act-btn" data-action="rename-chat" data-value="${esc(chat.id)}" title="Đổi tên">✎</button>
-            <button class="chat-act-btn danger" data-action="delete-chat" data-value="${esc(chat.id)}" title="Xóa">🗑</button>
+            <button class="chat-act-btn" data-action="rename-chat" data-value="${esc(chat.id)}" title="Đổi tên">${icon('edit')}</button>
+            <button class="chat-act-btn danger" data-action="delete-chat" data-value="${esc(chat.id)}" title="Xóa">${icon('trash')}</button>
           </div>
         </div>`;
       }).join('') : `<div class="chat-history-empty"><p class="small">Chưa có hội thoại nào. Hãy đặt câu hỏi đầu tiên!</p></div>`}
@@ -440,23 +451,24 @@ function renderMain() {
   state.tab = tab || 'chat';
   const fallback = tab === 'chat' ? renderChat() : tab === 'prep' ? renderPrep() : tab === 'stats' ? renderStats() : renderSettings();
   const isChat = route.name === 'chat';
-  return `<div class="screen main-screen layout-shell ${isChat ? 'has-chat-sidebar' : ''}">
+  return `<div class="screen main-screen layout-shell ${isChat ? 'has-chat-sidebar' : ''} ${state.historyHidden ? 'history-hidden' : ''}">
     ${renderSideNav(activeNav || 'chat', p)}
     ${isChat ? renderChatSidebar() : ''}
     <div class="workspace-col">
       <div class="header"><div class="inner">
-        ${isChat ? `<button class="icon-btn chat-drawer-btn" data-action="toggle-chat-drawer" title="Lịch sử hội thoại">☰</button>` : ''}
+        ${isChat ? `<button class="icon-btn chat-drawer-btn" data-action="toggle-chat-drawer" title="Lịch sử hội thoại">${icon('menu')}</button>` : ''}
+        ${isChat ? `<button class="icon-btn history-toggle" data-action="toggle-history" title="${state.historyHidden ? 'Hiện lịch sử hội thoại' : 'Ẩn lịch sử hội thoại'}">${icon(state.historyHidden ? 'chevron-right' : 'chevron-left')}</button>` : ''}
         <div class="logo" data-action="nav" data-value="/" style="cursor:pointer">havs<span>AI</span></div>
         <span class="badge">BETA</span>
         <span id="live" class="live ${state.live ? 'on' : ''}">${state.live ? '● live' : '○ offline'}</span>
         <div class="grow"></div>
-        ${isChat ? `<button class="btn ghost header-new-chat" data-action="new-chat">＋ Mới</button>` : ''}
+        ${isChat ? `<button class="btn ghost header-new-chat" data-action="new-chat">${icon('plus')} Mới</button>` : ''}
         <div class="avatar" data-action="go-profile">${esc((p.name || 'H')[0].toUpperCase())}</div>
       </div></div>
       <div class="main">${feature || fallback}</div>
       <div class="bottom-nav">
-        ${[['chat', 'Trò chuyện', '💬', '/'], ['prep', 'Ôn thi', '📚', '/exam-preps'], ['stats', 'Tiến độ', '📈', '/dashboard'], ['settings', 'Cài đặt', '⚙️', '/settings']].map(([id, label, icon, href]) =>
-          `<button class="nav-item ${tab === id ? 'active' : ''}" data-action="nav" data-value="${href}"><span class="ico">${icon}</span>${label}</button>`).join('')}
+        ${[['chat', 'Trò chuyện', 'chat', '/'], ['prep', 'Ôn thi', 'book', '/exam-preps'], ['stats', 'Tiến độ', 'chart', '/dashboard'], ['settings', 'Cài đặt', 'settings', '/settings']].map(([id, label, ico, href]) =>
+          `<button class="nav-item ${tab === id ? 'active' : ''}" data-action="nav" data-value="${href}">${icon(ico)}<span>${label}</span></button>`).join('')}
       </div>
     </div>
   </div>`;
@@ -466,12 +478,12 @@ function renderChat() {
   const prompts = PROMPTS[state.subject] || PROMPTS.default;
   const activeChat = (state.chats || []).find((c) => c.id === state.chatId);
   return `<div class="chat-stage ${state.dragOver ? 'drag-over' : ''}">
-    <div class="subject-bar">${SUBJECTS.map(([id, label]) => `<button class="chip ${state.subject === id ? 'active' : ''}" data-action="subject-tab" data-value="${id}">${SUBJECT_META[id] || ''} ${label}</button>`).join('')}</div>
+    <div class="subject-bar">${SUBJECTS.map(([id, label]) => `<button class="chip ${state.subject === id ? 'active' : ''}" data-action="subject-tab" data-value="${id}">${subjectIcon(id)} ${label}</button>`).join('')}</div>
     ${activeChat ? `<div class="chat-active-bar">
-      <span class="small muted">${SUBJECT_META[activeChat.subject] || '💬'} <b>${esc(activeChat.title || 'Cuộc trò chuyện')}</b></span>
+      <span class="small muted">${subjectIcon(activeChat.subject)} <b>${esc(activeChat.title || 'Cuộc trò chuyện')}</b></span>
       <div class="grow"></div>
-      <button class="btn ghost small" data-action="rename-chat" data-value="${esc(activeChat.id)}">✎ Đổi tên</button>
-      <button class="btn ghost small" data-action="new-chat">＋ Chat mới</button>
+      <button class="btn ghost small" data-action="rename-chat" data-value="${esc(activeChat.id)}">${icon('edit')} Đổi tên</button>
+      <button class="btn ghost small" data-action="new-chat">${icon('plus')} Chat mới</button>
     </div>` : ''}
     <div class="chat-wrap" id="chat-wrap">
       ${state.messages.length === 0 ? `<div class="center-text chat-welcome">
@@ -480,7 +492,7 @@ function renderChat() {
         <p>Môn ${esc(subjectName(state.subject))} · Giải thích từng bước, đọc ảnh/PDF bằng DeepSeek Vision, vẽ tay hoặc tra cứu web.</p>
         <div class="welcome-grid">
           ${prompts.map((text) => `<button class="welcome-card" data-action="prompt" data-value="${esc(text)}">
-            <span>${SUBJECT_META[state.subject] || '✨'}</span>
+            <span class="welcome-ico">${subjectIcon(state.subject)}</span>
             <b>${esc(text)}</b>
           </button>`).join('')}
         </div>
@@ -492,18 +504,18 @@ function renderChat() {
       ${state.uploadMime?.startsWith('image/') && state.imageUrl
         ? `<img src="${esc(state.imageUrl)}" style="max-height:80px;border-radius:10px" />`
         : state.uploadId
-          ? `<span class="tool">📄 ${esc(state.uploadName)}${state.uploadPages ? ` · ${state.uploadPages} trang` : ''}</span>`
+          ? `<span class="tool">${icon('doc')} ${esc(state.uploadName)}${state.uploadPages ? ` · ${state.uploadPages} trang` : ''}</span>`
           : ''}
-      ${state.uploadId ? `<button class="btn ghost small" data-action="clear-upload">✕ Bỏ đính kèm</button>` : ''}
+      ${state.uploadId ? `<button class="btn ghost small" data-action="clear-upload">${icon('close')} Bỏ đính kèm</button>` : ''}
     </div>
     <div class="composer">
       <input id="file-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" class="hidden" />
-      <button class="icon-btn" data-action="open-canvas" title="Vẽ tay">✎</button>
-      <button class="icon-btn" data-action="pick-file" title="Đính kèm ảnh hoặc PDF">＋</button>
+      <button class="icon-btn" data-action="open-canvas" title="Vẽ tay">${icon('pen')}</button>
+      <button class="icon-btn" data-action="pick-file" title="Đính kèm ảnh hoặc PDF">${icon('paperclip')}</button>
       <input id="chat-input" class="input" value="${esc(state.draft)}" placeholder="Nhập câu hỏi hoặc dán ảnh (Ctrl+V)…" autocomplete="off" />
-      <button class="icon-btn ${state.listening ? 'send' : ''}" data-action="voice-input" title="Nhập bằng giọng nói">${state.listening ? '◉' : '🎤'}</button>
-      <button class="icon-btn ${state.voiceOn ? 'send' : ''}" data-action="toggle-voice" title="Đọc câu trả lời">${state.voiceOn ? '🔊' : '🔇'}</button>
-      <button class="icon-btn send" data-action="send" ${state.streaming ? 'disabled' : ''} title="Gửi">➤</button>
+      <button class="icon-btn ${state.listening ? 'send' : ''}" data-action="voice-input" title="Nhập bằng giọng nói">${icon('mic')}</button>
+      <button class="icon-btn ${state.voiceOn ? 'send' : ''}" data-action="toggle-voice" title="Đọc câu trả lời">${icon(state.voiceOn ? 'volume' : 'volume-off')}</button>
+      <button class="icon-btn send" data-action="send" ${state.streaming ? 'disabled' : ''} title="Gửi">${icon('send')}</button>
     </div>
   </div>`;
 }
@@ -879,7 +891,11 @@ function openCanvas() {
 
 async function boot() {
   try {
-    try { if (localStorage.getItem('havs-voice') === 'off') state.voiceOn = false; } catch {}
+    try {
+      if (localStorage.getItem('havs-voice') === 'off') state.voiceOn = false;
+      if (localStorage.getItem('havs-nav-collapsed') === '1') state.navCollapsed = true;
+      if (localStorage.getItem('havs-history-hidden') === '1') state.historyHidden = true;
+    } catch {}
     await loadVoices();
     const session = await api('/api/auth/session');
     state.session = session;
@@ -1562,9 +1578,17 @@ document.addEventListener('click', async (event) => {
     }
     const voiceButton = document.querySelector('[data-action="toggle-voice"]');
     if (voiceButton) {
-      voiceButton.textContent = state.voiceOn ? '🔊' : '🔇';
+      voiceButton.innerHTML = icon(state.voiceOn ? 'volume' : 'volume-off');
       voiceButton.classList.toggle('send', state.voiceOn);
     }
+  } else if (action === 'toggle-nav') {
+    state.navCollapsed = !state.navCollapsed;
+    try { localStorage.setItem('havs-nav-collapsed', state.navCollapsed ? '1' : '0'); } catch {}
+    render();
+  } else if (action === 'toggle-history') {
+    state.historyHidden = !state.historyHidden;
+    try { localStorage.setItem('havs-history-hidden', state.historyHidden ? '1' : '0'); } catch {}
+    render();
   } else if (action === 'voice-input') {
     startVoiceInput();
   } else if (action === 'open-exam-wizard') {
