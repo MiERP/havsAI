@@ -678,8 +678,51 @@ p { line-height: 1.6; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 
+.exam-home { max-width: 100%; }
 .exam-home-grid { display: flex; flex-direction: column; gap: 14px; }
-.exam-home-main { min-width: 0; }
+.exam-home-main { min-width: 0; container-type: inline-size; }
+
+/* When the list column itself is narrow, stack the actions under the meta. */
+@container (max-width: 560px) {
+  .exam-item { flex-direction: column; align-items: stretch; }
+  .exam-item .grow { width: 100%; }
+  .exam-item-actions { margin-left: 0; justify-content: flex-end; flex-wrap: wrap; }
+}
+
+/* 7-8" tablets behave like phones: one column, even in landscape. */
+html[data-device="phone"] .exam-home-grid { display: flex; flex-direction: column; }
+html[data-device="phone"] .exam-home-main .list { display: flex; flex-direction: column; }
+
+/* 9"+ tablets get the split view from portrait upwards. */
+@media (min-width: 768px) {
+  html[data-device="tablet"] .exam-home-grid {
+    display: grid;
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+    gap: 22px;
+    align-items: start;
+  }
+  html[data-device="tablet"] .exam-home-side { position: static; }
+}
+
+@media (min-width: 1024px) {
+  .pad { max-width: 1280px; }
+  .exam-home {
+    max-width: 100%;
+    padding-left: clamp(20px, 2.2vw, 40px);
+    padding-right: clamp(20px, 2.2vw, 40px);
+  }
+}
+
+@media (min-width: 1500px) {
+  .exam-home-grid { grid-template-columns: minmax(360px, 440px) minmax(0, 1fr); gap: 32px; }
+  .exam-home-main .list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-content: start; }
+  .exam-home-main .list > .item { height: 100%; }
+}
+
+@media (pointer: coarse) {
+  .icon-btn { width: 44px; height: 44px; }
+  .exam-item-actions .icon-btn { width: 42px; height: 42px; }
+}
 .exam-item { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .exam-item .grow { min-width: 0; }
 .exam-item-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }

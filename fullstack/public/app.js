@@ -278,6 +278,55 @@ function subjectIcon(id, extra = '') {
   return icon(SUBJECT_META[id] || 'book', extra);
 }
 
+function detectDevice() {
+  const ua = navigator.userAgent || '';
+  const dpr = window.devicePixelRatio || 1;
+  const screenWidth = window.screen?.width || window.innerWidth;
+  const screenHeight = window.screen?.height || window.innerHeight;
+  const touch = (navigator.maxTouchPoints || 0) > 0 || window.matchMedia('(pointer: coarse)').matches;
+  const iPad = /iPad/i.test(ua) || (/Macintosh/i.test(ua) && (navigator.maxTouchPoints || 0) > 1);
+  const iPhone = /iPhone|iPod/i.test(ua);
+  const android = /Android/i.test(ua);
+  let ppi = 0;
+  if (iPad) ppi = 264;
+  else if (iPhone) ppi = 460;
+  else if (android) ppi = navigator.userAgentData?.mobile === false ? 280 : 400;
+  const diagonalPx = Math.sqrt(screenWidth * screenWidth + screenHeight * screenHeight) * dpr;
+  const inches = ppi ? diagonalPx / ppi : 0;
+  const viewport = Math.min(window.innerWidth, window.innerHeight);
+  let kind = 'desktop';
+  if (touch) {
+    if (inches && inches >= 9) kind = 'tablet';
+    else if (!inches && viewport >= 768) kind = 'tablet';
+    else kind = 'phone';
+  }
+  return {
+    kind,
+    inches: Math.round(inches * 10) / 10,
+    touch,
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    screen: { width: screenWidth, height: screenHeight, dpr }
+  };
+}
+
+function applyDeviceProfile() {
+  const forced = new URLSearchParams(location.search).get('device');
+  const profile = detectDevice();
+  if (['phone', 'tablet', 'desktop'].includes(forced)) profile.kind = forced;
+  const root = document.documentElement;
+  root.dataset.device = profile.kind;
+  root.dataset.input = profile.touch ? 'touch' : 'mouse';
+  state.device = profile;
+}
+
+applyDeviceProfile();
+let deviceResizeTimer = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(deviceResizeTimer);
+  deviceResizeTimer = setTimeout(applyDeviceProfile, 150);
+});
+window.addEventListener('orientationchange', () => setTimeout(applyDeviceProfile, 250));
+
 function render() {
   if (state.view === 'boot') app.innerHTML = renderBoot();
   else if (state.view === 'login') app.innerHTML = renderLogin();
